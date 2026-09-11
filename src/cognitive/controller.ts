@@ -30,6 +30,7 @@
  * @module dsh-cognitive-feedback/cognitive/controller
  */
 import { StateEngine, type CognitiveState, type TeachingBackResult } from './state.js';
+import { assessTeachingBack, extractTeachingBackEvidence } from './teaching-back.js';
 import { DEFAULT_CONFIG, decide, activeIntervention, actionLevel, type ActiveIntervention, type CognitiveConfig, type PolicyAction } from './policy.js';
 import type { CognitiveSignal } from './signal.js';
 import { createSectionRenderer, type SectionRenderer } from '../prompt/renderer.js';
@@ -42,19 +43,10 @@ import type { CognitiveEventSink } from '../storage/sink.js';
 const HIGH_VALUE_TASKS: ReadonlySet<string> = new Set(['architecture', 'research', 'debugging']);
 
 /**
- * Deterministic stand-in for a teaching-back evaluator.
- *
- * V0.1 deliberately does NOT judge whether an explanation is correct -- that
- * needs semantic understanding it does not have, and guessing would put a fake
- * signal in the log. It records only what it can observe: whether an answer was
- * given (`unassessed`) or not (`skipped`).
+ * Re-exported for callers that only need the coarse grade; the deterministic
+ * evidence extraction itself lives in `teaching-back.ts`.
  */
-export function assessTeachingBack(text: string | undefined): 'unassessed' | 'skipped' {
-  const value = String(text ?? '').trim();
-  if (value.length < 25) return 'skipped';
-  if (/^(skip|no idea|idk|n\/?a|pass|dunno)\b/i.test(value)) return 'skipped';
-  return 'unassessed';
-}
+export { assessTeachingBack };
 
 /** Result of a synchronous ingest step. */
 export interface IngestResult {
@@ -210,14 +202,33 @@ export class CognitiveController {
     // topic comparison, which would always differ because any reply yields a
     // new topic key.
     if (signal.kind === 'user_message' && before.teachingBackPending && before.lastActionType === 'teaching_back') {
-      const result = assessTeachingBack(signal.text);
       const topic = before.completedHighValueTopic ?? null;
+      // Deterministic evidence, never a correctness grade: see teaching-back.ts.
+      const evidence = extractTeachingBackEvidence(signal.text, { topic });
+      const result = evidence.result;
       const episodeId = before.currentEpisodeId;
       const interventionId = before.currentInterventionId;
-      events.push({ type: 'teaching_back.completed', payload: { result, topic }, ...correlation(episodeId, interventionId) });
+      events.push({
+        type: 'teaching_back.completed',
+        payload: { result, topic, evidence },
+        ...correlation(episodeId, interventionId),
+      });
       engine.recordTeachingBack(result);
+      // A gap is either a missing answer, or the user saying outright that they
+      // are unsure. A merely brief answer is NOT a gap -- that would be a
+      // correctness judgment the extractor is not allowed to make.
       if (result === 'skipped') {
-        events.push({ type: 'knowledge_gap.detected', payload: { topic, result }, ...correlation(episodeId, interventionId) });
+        events.push({
+          type: 'knowledge_gap.detected',
+          payload: { topic, result, origin: 'skipped_answer' },
+          ...correlation(episodeId, interventionId),
+        });
+      } else if (evidence.uncertaintyAcknowledged) {
+        events.push({
+          type: 'knowledge_gap.detected',
+          payload: { topic, result, origin: 'explicit_uncertainty' },
+          ...correlation(episodeId, interventionId),
+        });
       }
       // The answer terminates the episode: the cycle trigger -> hypothesis ->
       // implementation -> teaching-back is complete.
@@ -374,7 +385,15 @@ export class CognitiveController {
       // user did explain, V0.1 just cannot grade it.
       if (result === 'incorrect' || result === 'partially_correct' || result === 'skipped') {
         await this.persist(sessionId, [
-          { type: 'knowledge_gap.detected', payload: { topic: resolvedTopic, result }, ...correlation(episodeId, interventionId) },
+          {
+            type: 'knowledge_gap.detected',
+            payload: {
+              topic: resolvedTopic,
+              result,
+              origin: result === 'skipped' ? 'skipped_answer' : 'graded_low',
+            },
+            ...correlation(episodeId, interventionId),
+          },
         ]);
       }
       if (episodeId) {

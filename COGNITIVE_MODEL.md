@@ -78,6 +78,27 @@ Conclusion
 
 A research hypothesis should be explicitly marked as user-authored, AI-suggested, or jointly refined. V0.1 records only the minimal metadata required for this distinction.
 
+## 5.1 Teaching back as evidence capture
+
+"Teaching back" asks the user to explain why a solution works. The plugin does
+**not** grade the explanation. It extracts only what a deterministic rule can
+observe:
+
+- a stated cause and a stated mechanism;
+- a concrete concept (an identifier, or a word from the topic);
+- the user's own expressed confidence or uncertainty;
+- answer length as a completeness band.
+
+The result is labelled **evidence**, never correctness. A short answer is
+evidence of a short answer, not of misunderstanding, and it does not by itself
+create a knowledge gap. The two gap signals that do are the user declining to
+answer, and the user saying outright that they are unsure.
+
+Why so strict: an invented "correct" would be indistinguishable in the log from a
+real one, and every later judgement — including this plugin's own reports — would
+inherit the fabrication. Evidence that is honestly coarse is more useful than a
+grade that is confidently wrong.
+
 ## 6. Heuristic signals
 
 Possible signals include:

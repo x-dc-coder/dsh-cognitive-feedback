@@ -102,13 +102,30 @@ for it, so the pair joins without any topic comparison.
   "id": "evt_03",
   "timestamp": "2026-09-11T03:15:00.000Z",
   "sessionId": "session_01",
+  "episodeId": "ep_9f1c...",
+  "interventionId": "iv_77aa...",
   "type": "teaching_back.completed",
   "payload": {
-    "result": "partially_correct",
-    "topic": "worker synchronization"
+    "result": "unassessed",
+    "topic": "worker-duplicate-processing",
+    "evidence": {
+      "assessment": "evidence_extracted",
+      "result": "unassessed",
+      "answered": true,
+      "wordCount": 39,
+      "lengthBand": "adequate",
+      "causalExplanation": true,
+      "mechanismExplanation": true,
+      "keyConceptReferenced": true,
+      "uncertaintyAcknowledged": false,
+      "confidence": null,
+      "signals": ["causal", "mechanism", "key-concept", "length:adequate"]
+    }
   }
 }
 ```
+
+The answer text itself is **not** in the event -- only observable structure.
 
 ## Example: episode terminator
 
@@ -169,7 +186,28 @@ Rules that keep reconstruction deterministic:
 V0.1 emits only `unassessed` and `skipped`. Judging correctness needs semantic
 understanding the deterministic implementation does not have, and guessing would
 put a fabricated signal in the log. The grade-bearing values stay in the schema
-for a future evaluator.
+for a future evaluator (a host may supply one through `completeTeachingBack`).
+
+### Evidence, not judgment
+
+`payload.evidence` (V0.2) is a **deterministic evidence extraction**, labelled
+`assessment: "evidence_extracted"`. It reports whether the answer states a cause,
+states a mechanism, names a concrete concept, admits uncertainty, and what
+confidence the *user* expressed — never whether the explanation is true.
+
+| Evidence field | Rule |
+|---|---|
+| `causalExplanation` | the answer contains a causal connective (`because`, `caused by`, `so that`, `leads to`, ...) |
+| `mechanismExplanation` | the answer states how (`works by`, `by using`, `implemented by`, `through ...`) |
+| `keyConceptReferenced` | the answer contains a code-like identifier, or a token from the topic key |
+| `uncertaintyAcknowledged` | the user flags doubt (`not sure`, `unclear`, `no idea`, `might`) |
+| `confidence` | `low` if uncertainty, `high` if the user asserts confidence, `medium` if they hedge, else `null` |
+| `lengthBand` | `brief` (<12 words), `adequate` (12–45), `detailed` (>45) |
+
+`knowledge_gap.detected.payload.origin` names why a gap was recorded:
+`skipped_answer` (no answer), `explicit_uncertainty` (the user said they do not
+know), or `graded_low` (a host-supplied low grade). A merely brief answer is
+**not** a gap.
 
 ## Privacy principles
 

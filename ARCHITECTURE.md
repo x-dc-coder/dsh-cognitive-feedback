@@ -167,11 +167,14 @@ If the host has no user-interaction surface, the tool call fails rather than han
 
 After selected tasks, ask the user to explain the solution in 2–5 sentences. The plugin evaluates only the observable answer, not hidden reasoning.
 
-Possible outcome:
-
-```ts
-"correct" | "partially_correct" | "incorrect" | "skipped"
-```
+The V0.1 grade (`correct` | `partially_correct` | `incorrect` | `skipped`) was
+honest but nearly empty, so the controller now also records a deterministic
+**evidence extraction** (`src/cognitive/teaching-back.ts`): cause present,
+mechanism present, concrete concept referenced, the user's own confidence or
+uncertainty, and an answer-length band. It is labelled `evidence_extracted` and
+never claims the explanation is true; the coarse `result` stays
+`unassessed`/`skipped`. Only declining to answer, or saying outright "I don't
+know", records a knowledge gap.
 
 ### Event Logger
 

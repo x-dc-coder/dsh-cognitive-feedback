@@ -14,6 +14,7 @@
  */
 import type { TaskType } from '../cognitive/classify.js';
 import type { InterventionLevel, TeachingBackResult } from '../cognitive/state.js';
+import type { TeachingBackEvidence } from '../cognitive/teaching-back.js';
 
 /** Current schema version. Breaking changes require a new number. */
 export const SCHEMA_VERSION = 1;
@@ -25,6 +26,9 @@ export const SCHEMA_VERSION = 1;
  * no terminator was written yet (see `projection/episodes`).
  */
 export type EpisodeOutcome = 'completed' | 'abandoned';
+
+/** What caused a knowledge gap to be recorded. */
+export type KnowledgeGapOrigin = 'skipped_answer' | 'explicit_uncertainty' | 'graded_low';
 
 /**
  * Every event type the implementation actually emits.
@@ -52,8 +56,22 @@ export interface CognitiveEventPayloadMap {
     taskType: TaskType | null;
     topic: string | null;
   };
-  'teaching_back.completed': { result: TeachingBackResult; topic: string | null };
-  'knowledge_gap.detected': { topic: string | null; result: TeachingBackResult };
+  /**
+   * `evidence` carries the deterministic evidence extraction of the answer.
+   * It is optional only so a pre-V0.2 event, or a host-supplied grade with no
+   * answer to examine, still reads.
+   */
+  'teaching_back.completed': {
+    result: TeachingBackResult;
+    topic: string | null;
+    evidence?: TeachingBackEvidence;
+  };
+  'knowledge_gap.detected': {
+    topic: string | null;
+    result: TeachingBackResult;
+    /** Why the gap was recorded. Optional for pre-existing events. */
+    origin?: KnowledgeGapOrigin;
+  };
 }
 
 /** The known event types. */

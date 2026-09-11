@@ -82,6 +82,14 @@ export function apply(ctx: Context, config: Config): void {
 
 export { installAdapter, mapSessionEvent, resolveEventsPath, type AdapterConfig } from './dsh-adapter.js';
 export { CognitiveController, assessTeachingBack, type ControllerOptions, type IngestResult } from './cognitive/controller.js';
+export {
+  extractTeachingBackEvidence,
+  type AnswerLengthBand,
+  type ConfidenceLevel,
+  type TeachingBackAssessment,
+  type TeachingBackEvidence,
+  type TeachingBackEvidenceOptions,
+} from './cognitive/teaching-back.js';
 export { StateEngine, createState, type CognitiveState, type CognitiveMode, type InterventionLevel, type TeachingBackResult } from './cognitive/state.js';
 export { decide, activeIntervention, actionLevel, DEFAULT_CONFIG, type PolicyAction, type CognitiveConfig, type ActiveIntervention, type InterventionBudget } from './cognitive/policy.js';
 export { renderCognitiveSection, createSectionRenderer, fingerprint, SECTION_NAME, type SectionRenderer, type RendererOptions } from './prompt/renderer.js';
@@ -106,6 +114,7 @@ export {
   type CognitiveEventPayloadMap,
   type EpisodeOutcome,
   type EventCorrelation,
+  type KnowledgeGapOrigin,
   type PreparedEvent,
   type UnknownCognitiveEvent,
 } from './events/types.js';
