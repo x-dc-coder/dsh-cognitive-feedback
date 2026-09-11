@@ -93,6 +93,29 @@ One `StateEngine` was retained per session id forever. A long-lived host would g
 
 `hypothesis.challenged` and the signal kinds `tool_call` / `hypothesis_submitted` were declared but never emitted. Declaring unemitted members presents a contract the code does not honour; removed, with the deferred type parked in `ROADMAP.md`.
 
+### 2.7 Second code-review pass (same model, delivered later)
+
+A second reviewer on the same route returned after the first fixes, with five more
+defects. All were reproduced before being accepted:
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | Major | **Teaching back was a silent no-op.** `recordAction(teaching_back)` cleared `teachingBackPending`, so the section stopped rendering in the same assembly and the model never saw a directive. Reproduced: `action=teaching_back` with `renderSection() === ""`. | Fixed — the directive stays live until answered, and the controller now observes the answer, emitting `teaching_back.completed` as `unassessed`/`skipped` |
+| 2 | Major | Teaching back was **one-shot per session**: the topic-change reset never cleared `lastActionType`, so later high-value tasks silently stopped asking. | Fixed, with a test that asks twice |
+| 3 | Major | `handle()` / `completeTeachingBack()` did not uphold fail-open on these public paths; a throwing accessor on a signal could reject. | Fixed — both degrade to a warning |
+| 4 | Major | The adapter event listeners called `mapSessionEvent()` outside any guard, so a hostile payload could throw into DSH dispatch. | Fixed — every listener body wrapped; three accessor-attack cases tested |
+| 5 | Minor | `topicKey()` was unbounded: a 2 MB token produced a 2 MB key, which the teaching-back branch interpolates into the system prompt. | Fixed — 16 chars per token, 64 total |
+
+The second pass also verified the harness API usage structurally
+(`ctx.inject(['systemPrompt'], …)`, `agent.ctx.systemPrompt.section(…)`,
+`session/event`, lifecycle names, `agent/inbox/spliced.inserted`) against the
+installed declarations and found it correct.
+
+**Honest note on grading.** V0.1 emits only `unassessed` and `skipped`. Judging
+whether an explanation is *correct* needs semantic understanding a deterministic
+implementation does not have; inventing that signal would pollute the log that
+this project exists to keep trustworthy.
+
 ---
 
 ## 3. Functionality review (executed by the lead, temporary mount only)
