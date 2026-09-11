@@ -16,6 +16,7 @@
  * Usage: node tools/inspect-session.mjs <session.v3.jsonl.zstd> [--json] [--system]
  */
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { zstdDecompressSync } from 'node:zlib';
 
 const args = process.argv.slice(2);
@@ -94,6 +95,19 @@ for (const event of events) {
   });
 }
 
+// --- tool schema constancy ----------------------------------------------
+// A tool-schema change prevents provider cache reuse from the first altered
+// token, so the tool set must stay constant across every request in a session.
+const toolSignatures = new Set();
+const toolCounts = [];
+for (const event of events) {
+  if (typeOf(event) !== 'request/header') continue;
+  const tools = event.data?.header?.tools;
+  if (!Array.isArray(tools)) continue;
+  toolCounts.push(tools.length);
+  toolSignatures.add(createHash('sha256').update(JSON.stringify(tools)).digest('hex').slice(0, 12));
+}
+
 // --- usage ---------------------------------------------------------------
 const usageSamples = [];
 for (const event of events) {
@@ -108,17 +122,6 @@ for (const event of events) {
     outputTokens: usage.outputTokens ?? 0,
   });
 }
-
-// --- tool schema set (proves the plugin never changes it) ---------------
-const toolSets = [];
-for (const event of events) {
-  if (typeOf(event) !== 'request/header') continue;
-  const tools = event.data?.header?.tools;
-  if (!Array.isArray(tools)) continue;
-  const names = tools.map((tool) => tool.name).sort();
-  toolSets.push({ seq: event.seq, count: names.length, signature: names.join(',') });
-}
-const uniqueToolSignatures = [...new Set(toolSets.map((s) => s.signature))];
 
 const sum = (key) => usageSamples.reduce((acc, s) => acc + (s[key] ?? 0), 0);
 const cacheRead = sum('cacheReadTokens');
@@ -136,10 +139,10 @@ const report = {
     nodes: systemNodes.map(({ text, ...rest }) => rest),
   },
   toolSchema: {
-    requests: toolSets.length,
-    toolCount: toolSets[0]?.count ?? null,
-    uniqueSignatures: uniqueToolSignatures.length,
-    names: toolSets[0] ? toolSets[0].signature.split(',') : [],
+    requests: toolCounts.length,
+    toolCounts,
+    distinctSignatures: toolSignatures.size,
+    constant: toolSignatures.size <= 1,
   },
   usage: {
     samples: usageSamples.length,
@@ -161,8 +164,10 @@ if (asJson) {
     console.log(`  seq=${node.seq} turn=${node.turn} step=${node.step} len=${node.length} cognitive=${node.hasCognitive} blocks=${node.cognitiveBlocks}`);
     console.log(`    head: ${JSON.stringify(node.head)}`);
   }
-  console.log(`tool schema: ${toolSets.length} request(s), ${report.toolSchema.toolCount ?? '?'} tools, ${uniqueToolSignatures.length} unique signature(s)`);
-  if (uniqueToolSignatures.length > 1) console.log('  !! TOOL SET CHANGED BETWEEN REQUESTS');
+  console.log(
+    `tool schema: ${toolCounts.length} requests, tool counts ${JSON.stringify(toolCounts)}, ` +
+      `distinct signatures ${toolSignatures.size} ${toolSignatures.size <= 1 ? '(constant)' : '(CHANGED — cache reuse may break)'}`,
+  );
   console.log(`usage samples: ${usageSamples.length}`);
   for (const s of usageSamples) {
     console.log(`  seq=${s.seq} ${s.type} cacheRead=${s.cacheReadTokens} cacheWrite=${s.cacheWriteTokens} uncachedInput=${s.inputTokens} output=${s.outputTokens}`);
