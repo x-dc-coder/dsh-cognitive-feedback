@@ -1,21 +1,22 @@
 # V0.1 Implementation Plan
 
-## Phase 0 — Verify the DSH surface
+## Phase 0 — Verify the DSH surface (DONE)
 
-Before writing plugin code, inspect the exact DSH `v0.1.5-alpha.1` source/API.
+Verified on 2026-09-11 against the installed DSH **`0.1.5-rc.1`**. Findings are recorded in `docs/dsh-integration.md`; the summary is:
 
-Confirm:
+| Surface | rc.1 answer |
+|---|---|
+| Plugin anatomy | Cordis plugin package; default export; loaded via profile `cordis.patch.yml` `insert` rows (local path or `dsh plugin add`) |
+| System-prompt extension | `ctx.systemPrompt.section({ name, order, text })` — text may be a per-assembly function |
+| Dynamic update | Provider-function re-evaluation per assembly; auto-scoped when registered through `agent.ctx` |
+| Session events | `ctx.on('session/event', (session, event) => …)` firehose; `turn/start`, `step/start`, `user/message`, `assistant/message`, `tool/result` |
+| Agent events | `agent/created`, `agent/disposed`, `agent/pre-step`, `agent/turn-stopping`, `agent/status`, `agent/inbox/spliced` |
+| Agent drive API | `ctx.agents.create/resume`; `handle.agent.followup/steer/inject/cancel/whenIdle` |
+| User input | Official `ask_user_question` tool over the `ctx.userQuestions` seam (pauses the turn) |
+| Inbox | Two lists `next-turn` / `next-step` via `agent/inbox/spliced` + session projection |
+| Section orders | `SECTION_ORDERS` constants; cognitive section takes `700` |
 
-- plugin manifest/anatomy;
-- system-prompt extension point;
-- agent/session event access;
-- Session V3 event shape;
-- dynamic system-prompt update API;
-- plugin lifecycle and disposal;
-- how a plugin can request/await user input;
-- current package names and peer dependency ranges.
-
-Do not infer APIs from older DSH versions.
+Do not infer APIs from older DSH versions; re-verify against the installed declarations on every baseline bump.
 
 ## Phase 1 — Minimal vertical slice
 
@@ -42,7 +43,9 @@ Add:
 5. record the final user decision;
 6. continue implementation.
 
-If the DSH API cannot elegantly pause/resume an agent turn, implement the first version as a prompt-level gate rather than inventing a second event loop.
+The gate carrier is the official `ask_user_question` tool, which pauses the agent turn and returns the user's answer as compact JSON. Request a hypothesis with a stable question `id` and record the answer as a `hypothesis.submitted` event with `authorship: "user"`.
+
+When the host has no user-interaction surface the tool call settles as an error rather than hanging; the plugin then degrades to a prompt-level gate (request the reasoning in the cognitive section and proceed) instead of inventing a second event loop.
 
 ## Phase 3 — Teaching Back
 
@@ -73,35 +76,44 @@ CognitiveEventSink
 └── MemorySink
 ```
 
-Default location:
+Default location (respects the DSH home convention; do not hard-code `~/.dsh`):
 
 ```text
-~/.dsh/cognitive-feedback/events.jsonl
+$DSH_HOME/cognitive-feedback/events.jsonl      # DSH_HOME defaults to ~/.dsh
 ```
 
-The exact path should remain configurable.
+The exact path remains configurable through plugin config.
 
-## Proposed source layout
+## Actual source layout (implemented)
+
+The verified DSH plugin convention is a **dependency-free ESM package** loaded by absolute path or `dsh plugin add` — DSH itself ships compiled `lib/*.js`, and every local plugin follows the same shape. V0.1 therefore ships plain ESM JavaScript with JSDoc types and **no build step** (`AGENTS.md` §3: no complicated dependency graph). TypeScript remains a possible later migration once the surface is stable.
 
 ```text
-src/
-├── index.ts
-├── controller.ts
-├── state.ts
-├── policy.ts
-├── prompt.ts
-├── gate.ts
-├── teaching-back.ts
-├── events.ts
-├── types.ts
-├── dsh-adapter.ts
+lib/
+├── index.js            # plugin entry: name + apply(ctx, config)
+├── dsh-adapter.js      # the ONLY DSH-aware layer (events, section, signals)
+├── controller.js       # thin orchestrator: state → policy → events → section
+├── state.js            # StateEngine (cache-stable versioning)
+├── classify.js         # deterministic task / hypothesis classifier
+├── policy.js           # deterministic policy + budget
+├── prompt.js           # section rendering + memoizing renderer
+├── events.js           # event construction + rolling-window budget count
+├── types.js            # JSDoc typedefs + SCHEMA_VERSION
 └── storage/
-    ├── sink.ts
-    ├── jsonl-sink.ts
-    └── memory-sink.ts
+    ├── sink.js         # CognitiveEventSink contract
+    ├── jsonl-sink.js   # default append-only store
+    └── memory-sink.js  # tests / read-only hosts
+tools/
+└── inspect-session.mjs # Session V3 log inspector (injection + cache metrics)
+test/
+├── *.test.js           # unit + adapter tests (`node --test`), no DSH required
+└── live/               # real headless-session acceptance harness
 ```
 
-Do not create files until the actual DSH plugin conventions have been verified. Adapt this layout when DSH's architecture suggests a better boundary.
+Two documented deviations from the original sketch:
+
+- `gate.ts` / `teaching-back.ts` are not separate modules. The gate is a *policy action plus a rendered directive*, not an event loop; keeping it inside `policy.js` + `prompt.js` preserves the "no second agent loop" boundary and avoids two files that would only hold constants.
+- The plugin declares **no static `inject`**. A Cordis `inject` gate is *required*, not optional: an entry waiting on it never activates and fails the whole profile boot (observed live against rc.1). Optional service use goes through `ctx.inject(['systemPrompt'], cb)` instead.
 
 ## Deterministic policy examples
 
@@ -148,7 +160,16 @@ Minimum test groups:
 - cognitive section is bounded and removable;
 - prompts remain short;
 - no secrets are inserted;
-- prompt regeneration is deterministic for the same state.
+- section text is deterministic for the same state;
+- an inactive state renders an empty section.
+
+### Dynamic injection & prompt cache (live)
+
+- the cognitive section toggles between active and empty across assemblies within one session;
+- surrounding sections (identity, tool sections) are unchanged before and after a toggle;
+- the assembled prompt is stable byte-for-byte while state is unchanged;
+- on the configured model route, repeated assemblies with an unchanged prefix report cached-prefix reuse where the adapter exposes it (record the observed metric in `docs/testing.md`);
+- when no cache metric is exposed, a relative comparison against a control run must show no material regression.
 
 ### Failure isolation
 

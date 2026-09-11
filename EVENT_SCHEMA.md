@@ -102,6 +102,26 @@ interface CognitiveEventSink {
 
 This makes a future Soul-Spark adapter possible without coupling V0.1 to Soul-Spark's unstable implementation.
 
+## Mapping to native DSH vocabulary
+
+The plugin's event types are its own self-contained schema (above). The DSH Adapter maps native rc.1 events into them; this table is the contract that keeps the mapping explicit:
+
+| Native DSH event (rc.1) | Cognitive event |
+|---|---|
+| `session/created` | `session.started` |
+| `session/disposed` | `session.ended` |
+| `user/message` | (signal only; never persisted verbatim by default) |
+| `assistant/message` | (signal only) |
+| `tool/result` | (signal only) |
+| `turn/start` / `step/start` | (signal: `turn_start`) |
+| gate answer via `ask_user_question` | `hypothesis.submitted` |
+| policy gate issued | `intervention.triggered` |
+| challenge issued | `hypothesis.challenged` |
+| teaching-back prompt issued | `teaching_back.requested` |
+| teaching-back answered | `teaching_back.completed` |
+
+The plugin never persists raw message text by default — only structured metadata and short user-authored answers explicitly required to represent a cognitive event (see Privacy principles).
+
 ## Compatibility rules
 
 - New optional fields should be backward-compatible.

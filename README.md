@@ -35,9 +35,9 @@ Soul-Spark is **not** a V0.1 runtime dependency. A small `CognitiveEventSink` in
 
 ## Target baseline
 
-V0.1 targets **DSH `v0.1.5-alpha.1`**. DSH is in developer preview and its plugin APIs may change. The plugin must isolate DSH-specific integration code so future upgrades remain localized.
+V0.1 targets **DSH `0.1.5-rc.1`** (the installed baseline verified on 2026-09-11). DSH is in developer preview and its plugin APIs may change. The plugin must isolate DSH-specific integration code so future upgrades remain localized.
 
-The alpha.1 release introduced dynamic system-prompt updates, Session V3, and breaking Agent/Inbox plugin API changes. See `docs/dsh-integration.md` for the compatibility notes.
+The plugin injects its cognitive section through the rc.1 `ctx.systemPrompt` section registry and observes `session/event` / `agent/*` events. See `docs/dsh-integration.md` for the verified interface contract and `docs/testing.md` for the acceptance tests, including the dynamic-injection / prompt-cache check.
 
 ## Architecture
 
@@ -81,9 +81,12 @@ Cognitive Controller
 - `IMPLEMENTATION.md` — V0.1 implementation plan and acceptance criteria
 - `ROADMAP.md` — staged evolution beyond V0.1
 - `AGENTS.md` — development rules for AI coding agents
-- `docs/dsh-integration.md` — DSH compatibility and integration notes
+- `docs/dsh-integration.md` — verified DSH rc.1 interface contract and compatibility notes
+- `docs/testing.md` — unit + live acceptance tests, including dynamic prompt injection and cache impact
 - `docs/examples.md` — expected runtime behavior examples
 - `docs/development-workflow.md` — recommended human/AI development loop
+- `tools/inspect-session.mjs` — Session V3 log inspector: injection evidence + cache metrics
+- `test/` — unit tests and the live headless acceptance harness
 
 ## Development philosophy
 
@@ -93,6 +96,22 @@ The plugin should therefore be developed in the same way it is intended to make 
 
 ## Status
 
-**Pre-implementation / V0.1 specification.**
+**V0.1 implemented and verified against a real DSH 0.1.5-rc.1 session.**
 
-The first implementation milestone is a minimal vertical slice: observe an event → classify a small set of task signals → decide whether to intervene → inject a prompt or gate → optionally collect a teaching-back result → append a structured event.
+The vertical slice works end to end: observe a signal → classify the task → decide whether to intervene → inject a section into the system prompt → record a structured event.
+
+- `lib/` — dependency-free ESM plugin (no build step)
+- `node --test test/*.test.js` — **50/50 unit tests pass** (no DSH required)
+- `bash test/live/run-live.sh "<prompt>"` — real headless sessions, control vs treatment
+
+Verified live:
+
+| Claim | Evidence |
+|---|---|
+| an architecture request is detected deterministically | `intervention.triggered {level: 3, reason: "architecture"}` in the JSONL |
+| the section really reaches the model | treatment `system/message` is 5421 chars and contains `[COGNITIVE FEEDBACK]`; control is 4507 chars and does not |
+| the plugin is prompt-transparent when inactive | step-1 usage is byte-identical across arms (`cacheRead=768, uncachedInput=15462`) |
+| dynamic injection does not break prompt-cache reuse | steps 2+ read the full ~17k prefix from cache; per-step hit rate **98.25%** with the section present vs 96.67% without |
+| no tool-schema churn | the plugin registers no tools; one `system/message` node is emitted across a 4-step run |
+
+See `docs/testing.md` for the method, the raw numbers, and the two real defects the live tests caught.

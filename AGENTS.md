@@ -26,9 +26,9 @@ Do not start implementation from an ambiguous requirement.
 
 ### 2. Verify DSH APIs from source
 
-Target baseline is DSH `v0.1.5-alpha.1`. DSH is a developer preview and changes quickly.
+Target baseline is DSH **`0.1.5-rc.1`** (verified installed baseline, 2026-09-11). DSH is a developer preview and changes quickly.
 
-Never invent an API based on memory. Inspect the exact source/tag or installed package before coding.
+Never invent an API based on memory. Inspect the exact installed package declarations under `node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/` before coding, and record the verified surface in `docs/dsh-integration.md`.
 
 ### 3. Keep V0.1 small
 

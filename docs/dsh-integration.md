@@ -2,98 +2,128 @@
 
 ## Target
 
-V0.1 targets DeepSeek Harness `dsh-v0.1.5-alpha.1`.
+V0.1 targets DeepSeek Harness **`0.1.5-rc.1`** (verified against the installed baseline on 2026-09-11 via `dsh --version`).
 
-DSH describes itself as a plugin-first agent harness and is currently in developer preview, so compatibility-breaking changes are expected.
+DSH is a Cordis-based, plugin-first agent harness in developer preview, so compatibility-breaking changes are expected across releases. This document records the **verified rc.1 integration surface**, quoted from the installed package type declarations under
+`node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/{dsh-agent,dsh-system-prompt,dsh-session,dsh-tool-ask-user}`.
 
-## Relevant alpha.1 changes
+When an API differs here, the actual installed source wins and this document must be updated in the same change (per `AGENTS.md` §8).
 
-The `v0.1.5-alpha.1` release includes:
+## Verified integration surface (rc.1)
 
-- dynamic system-prompt updates without invalidating KV cache when the configured model explicitly supports the behavior;
-- Session V3;
-- Agent plugin API change: `ctx.agent` was removed and callers pass the Agent explicitly;
-- Inbox changed to a type interface, with pending messages accessed through `agent.inbox`;
-- system prompts are represented in the Session V3 message history.
+### 1. System-prompt injection — `ctx.systemPrompt`
 
-These changes matter directly to this plugin because cognitive feedback is expected to update runtime instructions and observe session/agent activity.
+Prompt contributions are **registered sections**, not string concatenation. They are assembled per model step in ascending `order`.
 
-## Important compatibility rule
-
-The repository documentation is a design specification, not a substitute for source inspection.
-
-Before implementation, inspect the exact DSH tag/source and verify:
-
-1. plugin manifest structure;
-2. package/peer dependency names;
-3. system-prompt extension API;
-4. event/session subscription mechanism;
-5. Agent lifecycle;
-6. user-input/inbox mechanism;
-7. dynamic system-prompt update mechanism;
-8. plugin cleanup/disposal contract.
-
-If an API differs from this document, the actual DSH source wins and this document should be updated.
-
-## Dynamic prompt strategy
-
-The plugin should contribute a small cognitive-feedback section rather than overwrite DSH's base system prompt.
-
-Conceptually:
-
-```text
-base DSH system prompt
-        +
-cognitive feedback section
-        ↓
-assembled runtime prompt
+```ts
+ctx.systemPrompt.section({
+  name: 'cognitive-feedback',
+  order: 700,                                  // free slot between TEAM_POLICY(600) and PTC_ONLY(800)
+  text: (context) => state.active
+    ? renderCognitiveSection(state)            // re-evaluated on every assembly
+    : '',
+})
 ```
 
-When no intervention is active, the cognitive section should be absent or minimal.
+- `text` accepts a function `(context: AssembleContext) => string`, evaluated at each assembly — this **is** the plugin's dynamic-update mechanism. No manual prompt rewrite is needed.
+- Registering through `agent.ctx` makes the section **agent-scoped**: it shadows a same-named global without affecting other agents.
+- `ctx.systemPrompt.variable(name, resolver)` contributes `{{name}}` references resolved per assembly.
+- Official `SECTION_ORDERS` already occupy `HARNESS_IDENTITY(-1000)`, `DEPLOYMENT_PERSONA_PREFIX(0)`, `PLAN_POLICY(500)`, `TEAM_POLICY(600)`, `PTC_ONLY(800)`, `FILE_REFERENCE(900)`, `TOOL_*(1000+)`, `TOOLS_SDK(5000)`, `…`. V0.1 uses an unoccupied order in the 700–799 range.
+- Events: `system-prompt/assemble` (waterfall over the assembled prompt) and `system-prompt/change` (registry notification).
 
-When the runtime supports safe dynamic updates, state changes may update only the cognitive section so the model can retain the benefits of existing context/KV cache behavior.
+> **KV-cache note.** The registry model lets the cognitive section change its text per assembly while the surrounding prompt structure stays stable. Whether a given model route actually retains KV-cache benefit across these assemblies must be **verified empirically per route** (see `docs/testing.md`); it is not an inherent property of the plugin.
 
-## Session events
+### 2. Observation — session & agent events
 
-The plugin should normalize DSH events into its own internal signals instead of coupling policy code directly to raw Session V3 structures.
+`ctx.on('session/event', (session, event) => …)` is the firehose of durable Session V3 events. Relevant kinds include `turn/start`, `step/start`, `user/message`, `assistant/message`, `tool/result`, `session/created`, and `session/disposed`.
 
-Example normalized signal:
+Live agent lifecycle and per-message signals:
+
+```ts
+ctx.on('agent/created', (agent) => …)          // live Agent published
+ctx.on('agent/disposed', (agent) => …)
+ctx.on('agent/pre-step', …)                    // intercept/replace a proposed step
+ctx.on('agent/turn-stopping', …)               // runs before a completed turn closes
+ctx.on('agent/status', …)
+```
+
+### 3. User input for the Reasoning Gate — `ask_user_question`
+
+DSH ships the official `ask_user_question` tool (`@deepseek-ai/dsh-tool-ask-user`), backed by the `ctx.userQuestions` seam. It **pauses the agent turn** and waits for the human answer, returning compact JSON:
+
+```ts
+{ questions: [{ id, question, header?, options?: [{ label, description }], multi_select? }] }
+// →
+{ answers: [{ id, selected: string[], custom? }] }
+```
+
+- This is the reasoning-gate carrier: gate before a high-value decision by asking the user for a hypothesis, then let the model continue.
+- **Fail open:** if no answerer accepts the request, the model receives an error instead of a hang. A runtime-owned child agent cannot call this tool and must report the unresolved question in its final result.
+- Keep a prompt-level gate as a fallback for hosts without a user-interaction surface.
+
+### 4. Driving an agent — `ctx.agents` / `AgentHandle`
+
+```ts
+const handle = await ctx.agents.create({ sessionId, meta?, agentOptions?, setup? })
+await handle.agent.followup({ content, source })   // enqueue next turn + wake
+await handle.agent.steer({ content, source })      // submit next-step input + wake
+await handle.agent.inject({ content, source })     // model-facing context, no wake
+handle.agent.cancel(cause)
+await handle.agent.whenIdle()
+```
+
+The `setup(agentCtx, agent)` callback composes the agent's scoped world **before publication**: scoped prompt sections, tools, variables, and listeners registered there exist before `session/created` and the first prompt assembly. V0.1 mounts the cognitive section scoped to an agent this way.
+
+### 5. Inbox — two pending lists via projection + events
+
+Pending input is **two ordered lists** (`next-turn`, `next-step`), not a single `agent.inbox` property:
+
+```ts
+type InboxTarget = 'next-turn' | 'next-step'
+interface InboxState { 'next-turn': UserMessage[]; 'next-step': UserMessage[] }
+'agent/inbox/spliced': { target, start, removedCount?, inserted, outcome? }   // event
+// exposed through SessionProjectionStateMap.inbox
+```
+
+### 6. Plugin distribution & loading
+
+Plugins load through the **profile bundle** mechanism: a profile's `cordis.patch.yml` `insert` list, applied over the profile root. A local-path row works for development:
+
+```yaml
+- insert:
+    - id: cognitive-feedback
+      name: /home/dc/projects/dsh-cognitive-feedback/dist/index.js
+```
+
+Install as a package with `dsh plugin --profile <name> add <package>` (forwards to pnpm in the profile dir). V0.1 ships as a Cordis plugin package (a `src/index.ts` default export) installable by either route.
+
+## Normalized cognitive signals
+
+The plugin maps raw DSH events to its own small signal vocabulary behind the DSH Adapter, keeping policy code DSH-free:
 
 ```ts
 type CognitiveSignal = {
   sessionId: string;
   kind:
-    | "user_message"
-    | "assistant_message"
-    | "tool_call"
-    | "tool_result"
-    | "system_update"
-    | "session_started"
-    | "session_ended";
+    | 'user_message' | 'assistant_message' | 'tool_call' | 'tool_result'
+    | 'turn_start' | 'turn_end' | 'session_started' | 'session_ended';
   text?: string;
   metadata?: Record<string, unknown>;
-};
+}
 ```
-
-The exact adapter shape is subject to source verification.
-
-## Plugin installation model
-
-DSH supports multiple plugin forms. V0.1 should follow the simplest repository/community-plugin form compatible with the target alpha rather than creating a bespoke distribution mechanism.
-
-The plugin repository should expose the standard DSH plugin manifest and package metadata once the exact conventions have been verified against the source.
 
 ## Compatibility testing
 
 For every DSH version bump:
 
-1. run unit tests without DSH;
+1. run unit tests without DSH (policy, storage, prompt);
 2. install the plugin against the target DSH version;
 3. start a fresh session;
 4. verify normal coding without interventions;
-5. trigger an architecture gate;
+5. trigger an architecture gate (`ask_user_question` path and prompt-level fallback);
 6. complete a teaching-back flow;
 7. inspect the generated cognitive JSONL;
-8. restart and verify graceful recovery.
+8. restart and verify graceful recovery;
+9. verify the dynamic cognitive section toggles per assembly and confirm whether KV-cache benefit is retained on the configured route.
 
-Keep the DSH adapter as the only area that should require significant compatibility edits.
+Keep the DSH Adapter as the only area that should require significant compatibility edits.

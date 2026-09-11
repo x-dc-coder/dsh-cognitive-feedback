@@ -54,6 +54,20 @@ type CognitiveState = {
 
 State is ephemeral. It is not a long-term user profile.
 
+**Signal → state mapping.** Every state field must be driven by an explicit signal, so policy stays testable without DSH (`AGENTS.md` §7):
+
+| State field | Driven by | Rule |
+|---|---|---|
+| `taskType` | latest `user_message` text | deterministic keyword/pattern classifier (`architecture`, `debugging`, `research`, `implementation`, `explanation`) |
+| `mode` | user text + task type | `research` for research tasks, `challenge` after a challenge, `learning` during teaching-back, else `normal` |
+| `currentHypothesis` | `hypothesis.submitted` event | set when the user authors a hypothesis; cleared on session end or topic change |
+| `recentDecisionOutsourcing` | `user_message` classified as delegation without hypothesis | increment; decay by one per hour window |
+| `recentUnexplainedImplementations` | `teaching_back.completed` with `skipped`/`incorrect` | increment on each occurrence |
+| `interventionLevel` | policy result | last issued action level |
+| `currentTopic` | latest `user_message` | short topic key used to detect topic change |
+
+No field is set by hidden reasoning or model introspection.
+
 ### Policy Engine
 
 Converts normalized state and signals into a small action set:
@@ -70,9 +84,23 @@ V0.1 policy is deterministic. No LLM classifier is required.
 
 ### Prompt Builder
 
-Produces short, removable intervention text. It should never replace the complete DSH system prompt. The cognitive section should be clearly delimited and regenerated when state changes.
+Produces short, removable intervention text as a **registered system-prompt section** — never by concatenating or replacing DSH's complete system prompt.
 
-Example:
+Against the rc.1 surface (`docs/dsh-integration.md` §1):
+
+```ts
+ctx.systemPrompt.section({
+  name: 'cognitive-feedback',
+  order: 700,                                   // free slot between TEAM_POLICY(600) and PTC_ONLY(800)
+  text: (context) => state.active
+    ? renderCognitiveSection(state)             // re-evaluated per assembly
+    : '',                                       // absent when no intervention is active
+})
+```
+
+The provider function is the dynamic-update mechanism: the section text changes per assembly while surrounding sections keep their order and content. When no intervention is active the section renders empty and contributes nothing.
+
+Example rendered text (bounded, clearly delimited):
 
 ```text
 [COGNITIVE FEEDBACK]
@@ -83,6 +111,8 @@ Before implementing this architecture change, state:
 The assistant may challenge the proposal before implementation.
 [/COGNITIVE FEEDBACK]
 ```
+
+The delimiters bound the injected text so it stays removable and greppable. Section text must stay short and must never include secrets.
 
 ### Reasoning Gate
 
@@ -103,6 +133,14 @@ agent implements
 ```
 
 The gate must not be applied to routine formatting, boilerplate, obvious refactors, or repetitive test generation.
+
+**Carrier.** rc.1 ships the official `ask_user_question` tool, which pauses the agent turn until the human answers. The gate uses it to collect the hypothesis:
+
+```ts
+{ questions: [{ id: 'cognitive-gate', question: 'What is your hypothesis for <decision>?', header: 'Reasoning gate' }] }
+```
+
+If the host has no user-interaction surface, the tool call fails rather than hanging; the plugin then degrades to a **prompt-level gate** (the reasoning is requested in the cognitive section, and implementation proceeds without a hard pause). No second event loop is created.
 
 ### Teaching Back
 
@@ -173,3 +211,5 @@ Initial defaults:
 - light interventions per day: max 10.
 
 The budget is intentionally conservative. The goal is to interrupt only when the expected learning value exceeds the interaction cost.
+
+**Counter lifetime.** `CognitiveState` is ephemeral, so an in-memory counter cannot enforce a per-day budget across restarts. V0.1 derives the budget from the persisted `intervention.triggered` events in the JSONL store (rolling 24-hour window), and keeps an in-memory cache for the current process. Sink failures degrade to the in-memory count rather than blocking.

@@ -1,0 +1,177 @@
+# Testing
+
+Two layers, both required. Unit tests prove the cognitive logic; live tests prove the plugin actually injects into a real DSH prompt **without breaking prompt-cache reuse**.
+
+## 1. Unit tests (no DSH)
+
+```bash
+node --test test/*.test.js
+```
+
+They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7).
+
+| File | Covers |
+|---|---|
+| `classify.test.js` | routine vs high-value classification, hypothesis detection, deterministic topic keys |
+| `state.test.js` | state transitions, reference stability for unchanged signals, gate→hypothesis conversion |
+| `policy.test.js` | gate / challenge / teaching-back decisions, budget suppression, disabled config |
+| `prompt.test.js` | bounded delimited rendering, determinism, fingerprint memoization, no secrets |
+| `storage.test.js` | schema version, unique ids, append-only JSONL, malformed-line tolerance |
+| `controller.test.js` | end-to-end decision flow, budget persistence across restarts, **fail-open on sink errors** |
+| `adapter.test.js` | native-event → cognitive-signal mapping, `$DSH_HOME` path resolution |
+
+## 2. Live tests (real DSH session)
+
+```bash
+bash test/live/run-live.sh "<task prompt>"
+```
+
+The harness boots the real `headless` profile twice — `control` (`enabled: false`) and `treatment` (enabled) — with a generated patch overlay, then reads the flushed Session V3 logs.
+
+```text
+test/live/cognitive.patch.template.yml   # profile overlay (plugin + isolated event path)
+tools/inspect-session.mjs                # Session V3 log inspector
+```
+
+### Credentials
+
+The provider key is read from the running `dsh` process environment at test time and is never printed or written to disk. No credential is stored in the repository.
+
+### Inspecting a session log
+
+```bash
+node tools/inspect-session.mjs <path>/session.v3.jsonl.zstd [--json] [--system]
+```
+
+DSH appends **one zstd frame per flush**, so a log is a concatenation of frames that neither `zstdDecompressSync` nor the streaming decoder reads past the first one. The inspector recovers every frame, validates the JSON, de-duplicates by `seq`, and reports the event histogram, the `system/message` nodes, and provider usage.
+
+## 3. What the live tests found (and why they matter)
+
+Two real defects were caught only by running against an actual session:
+
+### 3.1 A Cordis `inject` gate is required, not optional
+
+Declaring `export const inject = { optional: ['systemPrompt'] }` made the loader treat `optional` as a service name. The entry stayed `pending (waiting for service: optional)` and **the whole profile failed to boot**:
+
+```text
+Error: dsh: plugin tree failed to load: 1 entry did not activate
+  lib/index.js: pending (waiting for service: optional)
+```
+
+The plugin therefore declares no static `inject` and wires prompt injection through the documented optional pattern `ctx.inject(['systemPrompt'], cb)`.
+
+### 3.2 The request arrives before the prompt is assembled — but only via the inbox splice
+
+With the controller fed from `user/message`, the section rendered **empty**. The event order in a real log explains why:
+
+```text
+seq 3  agent/inbox/spliced   # ← the user request enters the inbox
+seq 4  turn/start
+seq 6  step/start
+seq 7  system/message        # ← the prompt is assembled HERE
+seq 8  user/message          # ← the plugin used to learn about the request only now
+```
+
+The log places `system/message` before `user/message` by surface convention, so a signal taken from `user/message` always misses the assembly it was meant to influence. Fixes:
+
+- the adapter takes the request from `agent/inbox/spliced`, which lands at seq 3;
+- `controller.ingest()` performs **all** state and policy mutation synchronously (only persistence is deferred), so the section provider observes the decision during the same assembly;
+- the later `user/message` is de-duplicated by request text.
+
+After the fix, the treatment prompt is measurably larger and contains the section:
+
+| Run | `system/message` length | contains `[COGNITIVE FEEDBACK]` |
+|---|---|---|
+| control (`enabled: false`) | 4507 | no |
+| treatment (enabled) | 5421 | **yes** |
+
+## 4. Prompt-cache acceptance test
+
+### 4.1 The mechanism being protected
+
+On the DeepSeek route the plugin targets, the adapter declares `systemPromptUpdate: 'in-history'` (`deepseek-flash` does by default). Under that mode a mid-conversation system-prompt change is **appended after the cached history instead of rewriting the leading system message**, so the prefix through that history stays reusable. Two consequences drive the design:
+
+- the plugin must **never change the tool schema set** — a tool-schema change prevents reuse from the first altered token (the adapter registers no tools);
+- the section text must be **byte-stable while state is unchanged** — the renderer memoizes on a fingerprint, and an inactive state renders the empty string.
+
+### 4.2 What is measured
+
+Provider usage, read back from the session log (and exposed live as the `tokenUsage` session projection):
+
+```text
+cacheReadTokens     input tokens served from the provider cache
+cacheWriteTokens    input tokens written to the provider cache
+inputTokens         uncached input tokens (disjoint from the cache fields)
+```
+
+```text
+cacheHitRate = cacheReadTokens / (cacheReadTokens + cacheWriteTokens + inputTokens)
+```
+
+### 4.3 Method
+
+A **multi-step** task is required: a single-step task cannot show prefix reuse. The harness copies a small fixture directory into each work dir and asks the model to read several files, forcing multiple assemblies.
+
+Each arm is run **twice** with an identical prompt so the first run warms the provider cache and the second run measures it; the arms use their own warm run so present-vs-absent sections are compared fairly.
+
+### 4.4 Acceptance
+
+1. the treatment session contains at least one `system/message` node with the cognitive section, and the control contains none;
+2. within the treatment session, the leading system node is stable across steps (in-history appends rather than rewriting the head);
+3. on the measured run, the treatment cache hit rate is not materially below the control's;
+4. when the section is inactive, repeated assemblies render identical text (covered by `prompt.test.js`).
+
+### 4.5 Measured results (2026-09-11, `deepseek-official/deepseek-flash`)
+
+Two real multi-step sessions, fixture of three `.md` files, read-before-answer task.
+
+**A. Section inactive (routine task) — the plugin is prompt-transparent**
+
+| step | control `cacheRead` / `uncached` | treatment `cacheRead` / `uncached` |
+|---|---|---|
+| 1 | 768 / 15462 | 768 / **15462** |
+| 2 | 16384 / 142 | 16384 / 259 |
+| 3 | 16640 / 262 | 16768 / 221 |
+| 4 | 17024 / 239 | — |
+
+Step 1 is **byte-identical in both arms** (`768 / 15462`), proving that an inactive cognitive section adds nothing to the prompt. Steps 2+ reuse the same ~16k prefix in both arms.
+
+**B. Section active (architecture task) — prefix reuse survives injection**
+
+| | control (4507 chars) | treatment (**5421** chars, section present) |
+|---|---|---|
+| step 1 (cold) | 768 / 15474 | 1024 / 15436 |
+| step 2 | 16384 / 164 | 17024 / 228 |
+| step 3 | 16640 / 270 | 17280 / 310 |
+| step 4 | 17536 / 379 | 18688 / 408 |
+| step 5 | 18176 / 1558 | — |
+| **steps 2+ hit rate** | **96.67%** | **98.25%** |
+| whole-run hit rate | 79.57% | 76.73% |
+| `system/message` nodes | 1 | **1** |
+
+Conclusions:
+
+1. **Injection is real.** The treatment prompt carries `[COGNITIVE FEEDBACK]` and is 914 characters longer; the control prompt has neither.
+2. **The prefix is reused for every step after the first.** Steps 2+ read 17k–18.7k tokens from the provider cache; the per-step hit rate is **98.25%** with the section present, marginally *better* than the 96.67% control because the run finished one step sooner.
+3. **The whole-run hit-rate gap (76.73% vs 79.57%) is not a cache regression.** It is an artifact of step count: the single cold step-1 miss is amortized over 4 steps in the treatment and 5 in the control. On established steps the treatment is equal or better.
+4. **Exactly one `system/message` node is emitted across all steps.** The section's text stayed byte-stable while the gate was active (the renderer memoizes on the state fingerprint), so DSH never had to log a changed prompt mid-series — the in-history append path was not even needed. The change would occur only when the intervention state itself changes.
+5. The plugin registers **no tools**, so the tool-schema set — the one thing that would invalidate reuse from the first altered token — never changes.
+
+## 5. Manual smoke test in a user profile
+
+```yaml
+# ~/.dsh/profiles/<profile>/cordis.patch.yml
+- insert:
+    - id: cognitive-feedback
+      name: /home/dc/projects/dsh-cognitive-feedback/lib/index.js
+      config:
+        eventsPath: /tmp/cognitive-feedback/events.jsonl
+```
+
+Then start a session, send an architecture-shaped request, and check:
+
+```bash
+cat /tmp/cognitive-feedback/events.jsonl
+```
+
+Expect `session.started` followed by `intervention.triggered` with `level: 3`.
