@@ -101,7 +101,7 @@ The plugin should therefore be developed in the same way it is intended to make 
 The vertical slice works end to end: observe a signal → classify the task → decide whether to intervene → inject a section into the system prompt → record a structured event.
 
 - `lib/` — dependency-free ESM plugin (no build step)
-- `node --test test/*.test.js` — **65/65 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
+- `node --test test/*.test.js` — **67/67 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
 - `bash test/live/run-live.sh "<prompt>"` — real headless sessions, control vs treatment
 
 Verified live:

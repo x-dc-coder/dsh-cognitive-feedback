@@ -17,6 +17,10 @@ function makeFakeCtx(options = {}) {
   /** @type {any[]} */
   const sections = [];
   const warnings = [];
+  /** @type {string[][]} */
+  const injectCalls = [];
+  /** Every property touched on the context, to prove no tool surface is used. */
+  const touched = new Set();
   const thrown = new Set(options.throwOn ?? []);
 
   const record = (event, handler) => {
@@ -46,7 +50,8 @@ function makeFakeCtx(options = {}) {
   const ctx = {
     on: record,
     systemPrompt: scoped.systemPrompt,
-    inject(_deps, callback) {
+    inject(deps, callback) {
+      injectCalls.push(deps);
       if (thrown.has('inject')) throw new Error('inject refused');
       callback(scoped);
     },
@@ -57,6 +62,8 @@ function makeFakeCtx(options = {}) {
     ctx,
     sections,
     warnings,
+    injectCalls,
+    touched,
     /** Dispatch an event to every current listener. */
     emit(event, ...args) {
       for (const handler of [...(listeners.get(event) ?? [])]) handler(...args);
@@ -84,6 +91,21 @@ function makeAgent(id) {
     },
   };
 }
+
+test('the plugin registers no tools, so the tool schema set never changes', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+
+  // Cache safety depends on this: a tool-schema change prevents provider cache
+  // reuse from the first altered token. The plugin must only ever ask for the
+  // system-prompt service.
+  assert.deepEqual(fake.injectCalls, [['systemPrompt']]);
+  const serialized = JSON.stringify(fake.injectCalls) + JSON.stringify(fake.sections.map((s) => s.name));
+  assert.doesNotMatch(serialized, /tool/i);
+
+  adapter.dispose();
+});
 
 test('installAdapter wires the observation and injection surfaces', async () => {
   const fake = makeFakeCtx();
