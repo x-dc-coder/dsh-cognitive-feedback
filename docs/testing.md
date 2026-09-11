@@ -255,7 +255,53 @@ carries the old behaviour until the next restart.
 Still not covered: an `ask_user_question` pause for a *debugging* gate, and a
 teaching-back grade (V0.1 emits `unassessed`/`skipped` by design).
 
-## 6. Manual smoke test in a user profile
+## 6. Reviewing real usage
+
+The plugin's value is cumulative, so one interaction proves nothing. The
+append-only log at `$DSH_HOME/cognitive-feedback/events.jsonl` is the evidence
+base, and `tools/cognitive-report.mjs` turns it into a funnel:
+
+```bash
+node tools/cognitive-report.mjs               # whole log
+node tools/cognitive-report.mjs --days 7      # last week
+node tools/cognitive-report.mjs --session <id> --json
+```
+
+```text
+funnel
+  sessions started          18
+  interventions issued      1
+  user hypotheses submitted 1
+  decisions recorded        1
+  teaching back requested   0
+  teaching back completed   0
+  knowledge gaps detected   0
+
+interventions by reason
+  architecture (level 3)     1
+```
+
+What to look at, and what it does **not** mean:
+
+| Signal | Reading |
+|---|---|
+| `interventions issued` ≫ `hypotheses submitted` | gates are being ignored — the intervention is noise, not help |
+| `teaching back completed` with `skipped` | explanations are being skipped; a gap worth watching |
+| `interventions issued` near zero over days of high-value work | the classifier is too conservative for this user |
+| `knowledge gaps detected` repeating on one topic | a durable gap, the intended input for a future adapter |
+| any of the above from a handful of sessions | **not a finding** — these are long-run signals |
+
+A session id in the log maps to its content at
+`$DSH_HOME/sessions/<cwd-slug>/<session-id>/session.v3.jsonl.zstd`, readable with
+`tools/inspect-session.mjs` (see §2).
+
+**Privacy.** Stored by design: structured metadata, and short user-authored
+answers capped at 500 characters (`hypothesis.submitted.payload.text`). Not
+stored: full transcripts, source files, tool output, or any hidden reasoning.
+The log is plain append-only JSONL — inspect it, grep it, or delete it at any
+time; nothing else depends on it.
+
+## 7. Manual smoke test in a user profile
 
 ```yaml
 # ~/.dsh/profiles/<profile>/cordis.patch.yml

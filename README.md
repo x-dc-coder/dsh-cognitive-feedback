@@ -86,6 +86,7 @@ Cognitive Controller
 - `docs/examples.md` — expected runtime behavior examples
 - `docs/development-workflow.md` — recommended human/AI development loop
 - `tools/inspect-session.mjs` — Session V3 log inspector: injection evidence + cache metrics
+- `tools/cognitive-report.mjs` — review the append-only event log: funnel, intervention reasons, teaching-back outcomes, timeline
 - `test/` — unit tests and the live headless acceptance harness
 
 ## Development philosophy
