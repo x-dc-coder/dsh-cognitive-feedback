@@ -85,6 +85,34 @@ interface InboxState { 'next-turn': UserMessage[]; 'next-step': UserMessage[] }
 // exposed through SessionProjectionStateMap.inbox
 ```
 
+### 6. Plugin form and configuration (Harness paradigm)
+
+The plugin follows the documented Harness plugin form (`docs/user/develop/basic/`
+in the harness documentation):
+
+```ts
+export const name = 'cognitive-feedback';
+
+export interface Config { /* ... */ }
+
+export const Config: Schema<Config> = Schema.object({
+  enabled: Schema.boolean().default(DEFAULT_CONFIG.enabled),
+  /* ... one field per tunable, defaults on the schema ... */
+});
+
+export function apply(ctx: Context, config: Config): void { /* ... */ }
+```
+
+| Paradigm requirement | How this plugin satisfies it |
+|---|---|
+| `name` + `apply(ctx, config)` | in `src/index.ts` |
+| Config as a **Standard Schema**, not a plain object | `Schema.object({...})` from `@deepseek-ai/schemastery`; Cordis validates and fills defaults while loading |
+| Defaults on the schema | every field uses `.default(...)`, derived from `DEFAULT_CONFIG` so core and schema cannot drift |
+| Fail loudly on invalid config | verified: `strongPerDay: 'x'` fails the load with `$.strongPerDay expected number but got x` |
+| No `inject` gate for optional services | `inject` is a *required* dependency gate; an unresolved one keeps the entry PENDING and fails the whole profile boot. Prompt injection therefore uses the framework's optional-registration pattern `ctx.inject(['systemPrompt'], cb)` |
+| **Automatic cleanup** | every registration goes through `ctx` (`ctx.on`, `ctx.inject`, `scoped.systemPrompt.section`), which the lifecycle contract disposes on unload. The plugin keeps **no private disposer list** and exposes no `dispose()` |
+| No hardcoded tunables | all seven settings are config fields, changeable from `cordis.patch.yml` without a code edit |
+
 ### 6. Plugin distribution & loading
 
 Plugins load through the **profile bundle** mechanism: a profile's `cordis.patch.yml` `insert` list, applied over the profile root. A local-path row works for development:

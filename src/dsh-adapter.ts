@@ -51,12 +51,6 @@ type AgentWithScopedContext = Agent & { readonly ctx: Context };
 /** Adapter options: the plugin's own config surface. */
 export type AdapterConfig = Partial<CognitiveConfig>;
 
-/** What \`installAdapter\` returns. */
-export interface AdapterHandle {
-  readonly controller: CognitiveController;
-  dispose(): void;
-}
-
 /** Resolve the default event store path from the DSH home convention. */
 export function resolveEventsPath(config: Partial<CognitiveConfig> = {}): string {
   if (config.eventsPath) return String(config.eventsPath);
@@ -133,8 +127,14 @@ export function mapSessionEvent(sessionId: string, event: SessionEvent): Cogniti
 
 /**
  * Install the cognitive-feedback adapter on a Cordis context.
+ *
+ * Returns the controller for introspection and tests. There is deliberately no
+ * \`dispose()\`: every registration below goes through \`ctx\` (\`ctx.on\`,
+ * \`ctx.inject\`, \`scoped.systemPrompt.section\`), and the Harness lifecycle
+ * contract disposes all of them when the plugin unloads. Tracking disposers
+ * here as well would duplicate the framework's job.
  */
-export function installAdapter(ctx: Context, config: AdapterConfig = {}): AdapterHandle {
+export function installAdapter(ctx: Context, config: AdapterConfig = {}): CognitiveController {
   const merged: Partial<CognitiveConfig> = { ...config };
   const logger = (msg: string, error?: unknown): void => {
     const detail = error instanceof Error ? ` -- ${error.message}` : '';
@@ -155,7 +155,6 @@ export function installAdapter(ctx: Context, config: AdapterConfig = {}): Adapte
   };
   const controller = new CognitiveController(controllerOptions);
 
-  const disposers: Array<() => void> = [];
   const pending: Array<() => void> = [];
   let ready = false;
 
@@ -200,43 +199,37 @@ export function installAdapter(ctx: Context, config: AdapterConfig = {}): Adapte
   };
 
   try {
-    disposers.push(
-      ctx.on(
-        'session/created',
-        guarded('session/created', (session: Session) => {
-          const sessionId = String(session?.id ?? session);
-          ingest(sessionId, { sessionId, kind: 'session_started' });
-        }),
-      ),
+    ctx.on(
+      'session/created',
+      guarded('session/created', (session: Session) => {
+        const sessionId = String(session?.id ?? session);
+        ingest(sessionId, { sessionId, kind: 'session_started' });
+      }),
     );
   } catch (error) {
     logger('cannot subscribe to session/created', error);
   }
 
   try {
-    disposers.push(
-      ctx.on(
-        'session/disposed',
-        guarded('session/disposed', (session: Session) => {
-          const sessionId = String(session?.id ?? session);
-          ingest(sessionId, { sessionId, kind: 'session_ended' });
-        }),
-      ),
+    ctx.on(
+      'session/disposed',
+      guarded('session/disposed', (session: Session) => {
+        const sessionId = String(session?.id ?? session);
+        ingest(sessionId, { sessionId, kind: 'session_ended' });
+      }),
     );
   } catch (error) {
     logger('cannot subscribe to session/disposed', error);
   }
 
   try {
-    disposers.push(
-      ctx.on(
-        'session/event',
-        guarded('session/event', (session: Session, event: SessionEvent) => {
-          const sessionId = String(session?.id ?? session);
-          const signal = mapSessionEvent(sessionId, event);
-          if (signal) ingest(sessionId, signal);
-        }),
-      ),
+    ctx.on(
+      'session/event',
+      guarded('session/event', (session: Session, event: SessionEvent) => {
+        const sessionId = String(session?.id ?? session);
+        const signal = mapSessionEvent(sessionId, event);
+        if (signal) ingest(sessionId, signal);
+      }),
     );
   } catch (error) {
     logger('cannot subscribe to session/event', error);
@@ -245,24 +238,22 @@ export function installAdapter(ctx: Context, config: AdapterConfig = {}): Adapte
   // --- Injection: one agent-scoped section, no tool registration -----------
   try {
     ctx.inject(['systemPrompt'], (scoped: Context) => {
-      disposers.push(
-        scoped.on(
-          'agent/created',
-          guarded('agent/created', (payload: { agent: Agent }) => {
-            try {
-              const { agent } = payload;
-              const sessionId = String(agent?.id ?? agent);
-              controller.session(sessionId);
-              (agent as AgentWithScopedContext).ctx.systemPrompt.section({
-                name: SECTION_NAME,
-                order: merged.sectionOrder ?? 700,
-                text: () => controller.renderSection(sessionId),
-              });
-            } catch (error) {
-              logger('section registration failed; interventions disabled for this agent', error);
-            }
-          }),
-        ),
+      scoped.on(
+        'agent/created',
+        guarded('agent/created', (payload: { agent: Agent }) => {
+          try {
+            const { agent } = payload;
+            const sessionId = String(agent?.id ?? agent);
+            controller.session(sessionId);
+            (agent as AgentWithScopedContext).ctx.systemPrompt.section({
+              name: SECTION_NAME,
+              order: merged.sectionOrder ?? 700,
+              text: () => controller.renderSection(sessionId),
+            });
+          } catch (error) {
+            logger('section registration failed; interventions disabled for this agent', error);
+          }
+        }),
       );
 
       // Fallback for hosts that do not emit agent/created before the first
@@ -294,17 +285,9 @@ export function installAdapter(ctx: Context, config: AdapterConfig = {}): Adapte
     logger('systemPrompt service unavailable; prompt injection disabled', error);
   }
 
-  return {
-    controller,
-    dispose: (): void => {
-      for (const dispose of disposers) {
-        try {
-          dispose();
-        } catch {
-          /* disposal must never throw */
-        }
-      }
-      void started.catch(() => {});
-    },
-  };
+  // The budget load must not reject unhandled if the sink read fails; the
+  // controller already warns internally.
+  void started.catch(() => {});
+
+  return controller;
 }

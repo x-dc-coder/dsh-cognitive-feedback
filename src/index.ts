@@ -10,36 +10,77 @@
  * Fail open: any feature failure downgrades to normal DSH behavior and never
  * blocks coding.
  *
+ * Follows the Harness plugin paradigm: \`name\`, a \`Config\` schema, and \`apply\`.
+ * Every registration goes through \`ctx\` (\`ctx.on\`, \`ctx.inject\`,
+ * \`ctx.systemPrompt.section\`), so the framework disposes all of them on unload
+ * and this plugin keeps no private lifecycle bookkeeping.
+ *
  * @module dsh-cognitive-feedback
  */
 import type { Context } from '@deepseek-ai/cordis';
-import { installAdapter, type AdapterConfig, type AdapterHandle } from './dsh-adapter.js';
+import Schema from '@deepseek-ai/schemastery';
+import { DEFAULT_CONFIG } from './cognitive/policy.js';
+import { installAdapter, type AdapterConfig } from './dsh-adapter.js';
 
 export const name = 'cognitive-feedback';
 
 /**
- * No static `inject` declaration on purpose.
+ * The plugin's configuration surface.
  *
- * Cordis treats an array/object `inject` as a *required* dependency gate: an
- * entry whose service never resolves stays pending and makes the whole profile
- * fail to boot. Prompt injection is therefore wired through the documented
- * optional pattern `ctx.inject(['systemPrompt'], cb)` inside the adapter, so
- * the plugin always activates and simply records events when the host has no
- * system-prompt service.
+ * Defaults live on the schema below, which is the single source of truth for
+ * them: the core reads \`DEFAULT_CONFIG\` and the schema derives from the same
+ * constants, so the two cannot drift.
  */
-export function apply(ctx: Context, config: AdapterConfig = {}): AdapterHandle {
-  const adapter = installAdapter(ctx, config);
-  // Cordis has no 'dispose' event. Registering the teardown as a scoped effect
-  // ties it to the plugin's own fiber, so it runs when the plugin unloads.
-  try {
-    ctx.effect(() => () => adapter.dispose());
-  } catch {
-    /* disposal must never throw at load time */
-  }
-  return adapter;
+export interface Config {
+  /** Master switch. When false the plugin is fully inert. */
+  enabled: boolean;
+  /** Max level-3 (reasoning gate) interventions per rolling 24h. */
+  strongPerDay: number;
+  /** Max level-1/2 (nudge/challenge) interventions per rolling 24h. */
+  lightPerDay: number;
+  /** Emit a teaching-back check after high-value work. */
+  teachingBack: boolean;
+  /** System-prompt section order; free slot between TEAM_POLICY(600) and PTC_ONLY(800). */
+  sectionOrder: number;
+  /** Include the directive to pause via the ask_user_question tool. */
+  useAskUserTool: boolean;
+  /** Event log path. Empty resolves \`$DSH_HOME/cognitive-feedback/events.jsonl\`. */
+  eventsPath: string;
 }
 
-export { installAdapter, mapSessionEvent, resolveEventsPath, type AdapterConfig, type AdapterHandle } from './dsh-adapter.js';
+/**
+ * Validated configuration. Cordis runs this while the plugin loads, fills the
+ * defaults, and fails the load on invalid values -- so \`apply\` always receives a
+ * complete, checked object.
+ */
+export const Config: Schema<Config> = Schema.object({
+  enabled: Schema.boolean().default(DEFAULT_CONFIG.enabled),
+  strongPerDay: Schema.number().default(DEFAULT_CONFIG.strongPerDay),
+  lightPerDay: Schema.number().default(DEFAULT_CONFIG.lightPerDay),
+  teachingBack: Schema.boolean().default(DEFAULT_CONFIG.teachingBack),
+  sectionOrder: Schema.number().default(DEFAULT_CONFIG.sectionOrder),
+  useAskUserTool: Schema.boolean().default(DEFAULT_CONFIG.useAskUserTool),
+  eventsPath: Schema.string().default(''),
+});
+
+/**
+ * No static \`inject\` declaration on purpose.
+ *
+ * Cordis treats an array/object \`inject\` as a *required* dependency gate: an
+ * entry whose service never resolves stays PENDING and makes the whole profile
+ * fail to boot (observed live against rc.1). Prompt injection is therefore
+ * wired through the framework's own optional-registration pattern,
+ * \`ctx.inject(['systemPrompt'], cb)\` inside the adapter, so the plugin always
+ * activates and simply records events when the host has no system-prompt service.
+ */
+export function apply(ctx: Context, config: Config): void {
+  installAdapter(ctx, {
+    ...config,
+    eventsPath: config.eventsPath === '' ? null : config.eventsPath,
+  } satisfies AdapterConfig);
+}
+
+export { installAdapter, mapSessionEvent, resolveEventsPath, type AdapterConfig } from './dsh-adapter.js';
 export { CognitiveController, assessTeachingBack, type ControllerOptions, type IngestResult } from './cognitive/controller.js';
 export { StateEngine, createState, type CognitiveState, type CognitiveMode, type InterventionLevel, type TeachingBackResult } from './cognitive/state.js';
 export { decide, activeIntervention, actionLevel, DEFAULT_CONFIG, type PolicyAction, type CognitiveConfig, type ActiveIntervention, type InterventionBudget } from './cognitive/policy.js';

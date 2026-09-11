@@ -86,7 +86,7 @@ The exact path remains configurable through plugin config.
 
 ## Actual source layout (implemented)
 
-The plugin is written in **TypeScript** and compiled to dependency-free ESM. DSH loads the build output; it never sees the sources.
+The plugin is written in **TypeScript** and compiled to ESM. DSH loads the build output; it never sees the sources. There is exactly one runtime dependency, `@deepseek-ai/schemastery`, required by the Harness plugin paradigm: the exported `Config` must be a Standard Schema so Cordis can validate configuration and fill defaults. Everything else is Node built-ins.
 
 ```text
 src/
