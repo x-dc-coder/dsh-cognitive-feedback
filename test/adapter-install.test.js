@@ -92,6 +92,49 @@ function makeAgent(id) {
   };
 }
 
+test('the host fallback and the agent-scoped section share ONE name', async () => {
+  // DSH shadows sections BY NAME ONLY. Registering the fallback under a
+  // distinct name (e.g. "cognitive-feedback:global") means it is NOT shadowed
+  // and BOTH render, injecting the directive twice into the same prompt. That
+  // shipped once: a real prompt contained the block twice, and only a
+  // cardinality check (not a presence check) exposes it.
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+
+  const agent = makeAgent('session-1');
+  fake.emit('agent/created', { agent });
+
+  const names = [...fake.sections, ...agent.sections].map((section) => section.name);
+  assert.ok(names.length >= 2, 'both the fallback and the agent-scoped section must be registered');
+  assert.equal(new Set(names).size, 1, `all registrations must share one name, got ${JSON.stringify(names)}`);
+
+  adapter.dispose();
+});
+
+test('an active intervention renders exactly one COGNITIVE FEEDBACK block', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+  const agent = makeAgent('session-1');
+  fake.emit('agent/created', { agent });
+
+  const section = agent.sections[0];
+  const text = section.text();
+  assert.equal(text, '', 'inactive state contributes nothing');
+
+  fake.emit('session/event', { id: 'session-1' }, {
+    type: 'agent/inbox/spliced',
+    data: { target: 'next-turn', start: 0, inserted: [{ content: [{ type: 'text', text: 'Refactor the storage layer so we can support three backends.' }], source: { kind: 'user' } }] },
+  });
+
+  // Cardinality, not presence: presence is what let the duplication through.
+  const blocks = (section.text().match(/\[COGNITIVE FEEDBACK\]/g) ?? []).length;
+  assert.equal(blocks, 1, 'the directive must appear exactly once');
+
+  adapter.dispose();
+});
+
 test('the plugin registers no tools, so the tool schema set never changes', async () => {
   const fake = makeFakeCtx();
   const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
@@ -115,7 +158,9 @@ test('installAdapter wires the observation and injection surfaces', async () => 
   // One global fallback section at the configured order.
   assert.equal(fake.sections.length, 1);
   assert.equal(fake.sections[0].order, 700);
-  assert.equal(fake.sections[0].name, 'cognitive-feedback:global');
+  // The fallback shares the canonical name so the agent-scoped registration
+  // shadows it (see the dedicated shadowing test).
+  assert.equal(fake.sections[0].name, 'cognitive-feedback');
 
   // An agent gets its own scoped section at the same order.
   const agent = makeAgent('session-abc');

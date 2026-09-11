@@ -15,6 +15,10 @@ Includes:
 
 Explicitly excludes Soul-Spark runtime integration.
 
+## Deferred from V0.1
+
+- `hypothesis.challenged` event type — declared in the original schema but never emitted by the V0.1 implementation, so it was removed from the shipped vocabulary. Reintroduce it when a feature actually records a challenge to a user hypothesis.
+
 ## V0.2 — Better feedback
 
 Potential additions:

@@ -17,7 +17,6 @@ type CognitiveEvent = {
     | "session.started"
     | "intervention.triggered"
     | "hypothesis.submitted"
-    | "hypothesis.challenged"
     | "decision.recorded"
     | "teaching_back.requested"
     | "teaching_back.completed"
@@ -101,6 +100,8 @@ interface CognitiveEventSink {
 ```
 
 This makes a future Soul-Spark adapter possible without coupling V0.1 to Soul-Spark's unstable implementation.
+
+Only event types the V0.1 implementation actually emits are listed. `hypothesis.challenged` was removed because nothing produced it; it is recorded in `ROADMAP.md` instead.
 
 ## Mapping to native DSH vocabulary
 

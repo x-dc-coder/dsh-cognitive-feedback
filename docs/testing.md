@@ -83,10 +83,12 @@ The log places `system/message` before `user/message` by surface convention, so 
 
 After the fix, the treatment prompt is measurably larger and contains the section:
 
-| Run | `system/message` length | contains `[COGNITIVE FEEDBACK]` |
+| Run | `system/message` length | `[COGNITIVE FEEDBACK]` blocks |
 |---|---|---|
-| control (`enabled: false`) | 4507 | no |
-| treatment (enabled) | 5421 | **yes** |
+| control (`enabled: false`) | 4508 | 0 |
+| treatment (enabled) | 4971 | **1** |
+
+> An earlier revision of this table reported 5421 chars and asserted only *presence*. Both registrations were rendering, so the directive was injected **twice** (2 blocks, 925-char delta). The independent code review caught it; the fix makes both registrations share one section name so DSH's agent-scope shadowing applies. `tools/inspect-session.mjs` now reports the block **count**, and `adapter-install.test.js` asserts cardinality — presence alone cannot catch duplication.
 
 ## 4. Prompt-cache acceptance test
 
@@ -157,7 +159,9 @@ Step 1 is **byte-identical in both arms** (`768 / 15462`), proving that an inact
 
 **B. Section active (architecture task) — prefix reuse survives injection**
 
-| | control (4507 chars) | treatment (**5421** chars, section present) |
+> These numbers were recorded **before** the duplicate-injection fix, so the treatment prompt then carried the block twice (5421 chars). Duplication changes prompt size, not prefix stability, so the reuse conclusion is unaffected — but the treatment prompt is now 4971 chars with one 463-char section.
+
+| | control (4507 chars) | treatment (5421 chars, section present **twice** — pre-fix) |
 |---|---|---|
 | step 1 (cold) | 768 / 15474 | 1024 / 15436 |
 | step 2 | 16384 / 164 | 17024 / 228 |

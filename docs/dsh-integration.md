@@ -105,7 +105,7 @@ The plugin maps raw DSH events to its own small signal vocabulary behind the DSH
 type CognitiveSignal = {
   sessionId: string;
   kind:
-    | 'user_message' | 'assistant_message' | 'tool_call' | 'tool_result'
+    | 'user_message' | 'assistant_message' | 'tool_result'
     | 'turn_start' | 'turn_end' | 'session_started' | 'session_ended';
   text?: string;
   metadata?: Record<string, unknown>;

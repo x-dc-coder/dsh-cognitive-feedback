@@ -86,6 +86,9 @@ for (const event of events) {
     step: event.data?.step,
     length: text.length,
     hasCognitive: text.includes('COGNITIVE FEEDBACK'),
+    // Cardinality matters: a duplicate section registration injects the block
+    // twice. Asserting presence alone cannot catch that.
+    cognitiveBlocks: (text.match(/\[COGNITIVE FEEDBACK\]/g) ?? []).length,
     head: text.slice(0, 80),
     text,
   });
@@ -155,7 +158,7 @@ if (asJson) {
   console.log(`events: ${report.events}`);
   console.log(`system/message nodes: ${systemNodes.length} (with cognitive section: ${report.systemMessages.withCognitiveSection})`);
   for (const node of systemNodes) {
-    console.log(`  seq=${node.seq} turn=${node.turn} step=${node.step} len=${node.length} cognitive=${node.hasCognitive}`);
+    console.log(`  seq=${node.seq} turn=${node.turn} step=${node.step} len=${node.length} cognitive=${node.hasCognitive} blocks=${node.cognitiveBlocks}`);
     console.log(`    head: ${JSON.stringify(node.head)}`);
   }
   console.log(`tool schema: ${toolSets.length} request(s), ${report.toolSchema.toolCount ?? '?'} tools, ${uniqueToolSignatures.length} unique signature(s)`);

@@ -21,8 +21,8 @@
     }
   },
   "scripts": {
-    "test": "node --test test/",
-    "test:live": "node test/live/run-cache-test.js"
+    "test": "node --test test/*.test.js",
+    "test:live": "bash test/live/run-live.sh"
   },
   "engines": {
     "node": ">=20"

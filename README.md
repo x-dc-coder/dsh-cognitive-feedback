@@ -101,7 +101,7 @@ The plugin should therefore be developed in the same way it is intended to make 
 The vertical slice works end to end: observe a signal → classify the task → decide whether to intervene → inject a section into the system prompt → record a structured event.
 
 - `lib/` — dependency-free ESM plugin (no build step)
-- `node --test test/*.test.js` — **67/67 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
+- `node --test test/*.test.js` — **69/69 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
 - `bash test/live/run-live.sh "<prompt>"` — real headless sessions, control vs treatment
 
 Verified live:
@@ -109,9 +109,9 @@ Verified live:
 | Claim | Evidence |
 |---|---|
 | an architecture request is detected deterministically | `intervention.triggered {level: 3, reason: "architecture"}` in the JSONL |
-| the section really reaches the model | treatment `system/message` is 5421 chars and contains `[COGNITIVE FEEDBACK]`; control is 4507 chars and does not |
+| the section really reaches the model **exactly once** | treatment `system/message` is 4971 chars with 1 `[COGNITIVE FEEDBACK]` block; control is 4508 chars with 0 |
 | the plugin is prompt-transparent when inactive | step-1 usage is byte-identical across arms (`cacheRead=768, uncachedInput=15462`) |
 | dynamic injection does not break prompt-cache reuse | steps 2+ read the full ~17k prefix from cache; per-step hit rate **98.25%** with the section present vs 96.67% without |
 | no tool-schema churn | the plugin registers no tools; one `system/message` node is emitted across a 4-step run |
 
-See `docs/testing.md` for the method, the raw numbers, and the two real defects the live tests caught.
+See `docs/testing.md` for the method, the raw numbers, and the real defects the live tests and the independent review caught.
