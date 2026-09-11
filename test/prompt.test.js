@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { renderCognitiveSection, createSectionRenderer, fingerprint, SECTION_NAME } from '../dist/prompt/renderer.js';
 import { createState } from '../dist/cognitive/state.js';
+import { CognitiveController } from '../dist/cognitive/controller.js';
+import { MemorySink } from '../dist/storage/memory-sink.js';
+import { makeEvent } from '../dist/events/factory.js';
+import { buildProjection } from '../dist/projection/index.js';
 
 /** @param {Partial<ReturnType<typeof createState>>} patch */
 const stateWith = (patch) => ({ ...createState('s1'), ...patch });
@@ -78,5 +84,83 @@ test('user-authored text is never echoed back into the section', () => {
       lastUserText: secret,
     });
     assert.equal(renderCognitiveSection(state).includes(secret), false, secret);
+  }
+});
+
+test('the live renderer cannot reach the event log (static import boundary)', () => {
+  // The boundary is enforced structurally, not by convention: renderer.ts may
+  // depend on cognitive state, and on nothing that reads persisted history.
+  const source = readFileSync(fileURLToPath(new URL('../src/prompt/renderer.ts', import.meta.url)), 'utf8');
+  const imports = [...source.matchAll(/from '([^']+)'/g)].map((match) => match[1]);
+  assert.ok(imports.length > 0, 'the renderer imports something');
+  for (const specifier of imports) {
+    assert.match(specifier, /^\.\.\/cognitive\//, `renderer must not import ${specifier}`);
+  }
+  assert.doesNotMatch(source, /node:fs|storage\/|projection\/|JsonlSink|parseCognitiveEvent/);
+});
+
+test('history cannot change an otherwise identical live prompt', async () => {
+  // 200 historical gaps across an old session: a projection of them is real,
+  // and none of it may reach the current prompt.
+  const historical = [];
+  for (let i = 0; i < 200; i += 1) {
+    historical.push(
+      makeEvent(
+        'knowledge_gap.detected',
+        { topic: `historical-topic-${i}`, result: 'skipped', origin: 'skipped_answer' },
+        { sessionId: 'old-session', timestamp: `2026-08-01T00:00:${String(i % 60).padStart(2, '0')}.000Z` },
+      ),
+    );
+  }
+  const projection = buildProjection(historical);
+  assert.equal(projection.sessions.length, 1);
+  assert.equal(projection.sessions[0].eventCount, 200);
+
+  const now = () => new Date('2026-09-11T00:00:00.000Z');
+  const quiet = new CognitiveController({ config: {}, sink: new MemorySink(), logger: () => {}, now });
+  const noisy = new CognitiveController({ config: {}, sink: new MemorySink(historical), logger: () => {}, now });
+  await quiet.start();
+  await noisy.start();
+
+  const signals = [
+    { sessionId: 's1', kind: 'user_message', text: 'Refactor the storage layer so we can support three backends.' },
+    { sessionId: 's1', kind: 'user_message', text: 'I think the storage interface leaks backend details.' },
+  ];
+  for (const signal of signals) {
+    await quiet.handle('s1', signal);
+    await noisy.handle('s1', signal);
+    assert.equal(
+      noisy.renderSection('s1'),
+      quiet.renderSection('s1'),
+      `history must be invisible to the prompt after "${signal.text.slice(0, 24)}..."`,
+    );
+  }
+
+  // The gate rendered the same text it would have with no history at all.
+  assert.equal(quiet.renderSection('s1'), '', 'the answered gate cleared the directive in both arms');
+  for (let i = 0; i < 200; i += 1) {
+    assert.equal(noisy.renderSection('s1').includes(`historical-topic-${i}`), false);
+  }
+});
+
+test('a directive renders identically for equal states built from different histories', () => {
+  const makeState = () => stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' });
+  assert.equal(renderCognitiveSection(makeState()), renderCognitiveSection(makeState()));
+  assert.match(renderCognitiveSection(makeState()), /Reasoning gate/);
+});
+
+test('every directive is bounded, whatever the state contains', () => {
+  const hostileTopic = 'a'.repeat(100_000);
+  const states = [
+    stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' }),
+    stateWith({ taskType: 'debugging', currentTopic: 'duplicate-jobs', lastActionType: 'prompt', lastActionTopic: 'duplicate-jobs' }),
+    stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', teachingBackPending: true, completedHighValueTopic: 'refactor-storage' }),
+    stateWith({ taskType: 'architecture', currentTopic: hostileTopic, pendingGate: true, lastGateTopic: hostileTopic }),
+    stateWith({ taskType: 'architecture', currentTopic: hostileTopic, teachingBackPending: true, completedHighValueTopic: hostileTopic }),
+  ];
+  for (const state of states) {
+    const text = renderCognitiveSection(state);
+    assert.ok(text.length > 0);
+    assert.ok(text.length <= 1200, `section too long: ${text.length}`);
   }
 });

@@ -19,6 +19,24 @@ export interface RendererOptions {
 }
 
 /**
+ * Hard cap on any state-derived string interpolated into the section.
+ *
+ * `currentTopic` is normally already bounded by `topicKey()`, but the renderer is
+ * a public, directly callable function: the section's bound must not depend on
+ * every caller having sanitized the state first.
+ */
+const MAX_REASON_LENGTH = 64;
+
+/** A single-line, length-capped rendering of a state-derived label. */
+function boundedReason(reason: string | undefined): string {
+  if (!reason) return '';
+  return String(reason)
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, MAX_REASON_LENGTH);
+}
+
+/**
  * A stable, minimal fingerprint of everything the rendering depends on. Two
  * states with the same fingerprint MUST render identical text.
  */
@@ -67,13 +85,14 @@ export function renderCognitiveSection(state: CognitiveState, options: RendererO
     ].join('\n');
   }
 
+  const label = boundedReason(active.reason);
   return [
     '[COGNITIVE FEEDBACK]',
-    // reason here is a topic key derived from user text. It is sanitized to at
-    // most six lowercase [a-z0-9-] words by topicKey(), which is the injection
-    // boundary; it is never raw user input.
-    active.reason
-      ? `Teaching back -- the solution for "${active.reason}" is in place.`
+    // reason here is a topic key derived from user text: topicKey() already
+    // caps it at six lowercase [a-z0-9-] words. boundedReason() re-applies the
+    // cap so the section stays bounded even for a direct caller that did not.
+    label
+      ? `Teaching back -- the solution for "${label}" is in place.`
       : 'Teaching back -- the solution is in place.',
     'Ask the user to explain, in 2-5 sentences, why this solution works and one limitation it has.',
     'Record their answer as a teaching-back result; do not treat a skipped answer as failure.',

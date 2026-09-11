@@ -207,6 +207,35 @@ Properties that keep the derivation safe:
 - **read-only with respect to the prompt**: nothing in this layer is consulted
   when the cognitive section is rendered (see the prompt/memory boundary).
 
+### Prompt / memory boundary
+
+The two data paths are separate, and the separation is structural rather than
+documentary:
+
+```text
+LIVE PROMPT                        LONG-TERM MEMORY
+CognitiveState                     raw CognitiveEvent log
+      │ renderCognitiveSection()          │ buildProjection()
+      ▼                                   ▼
+one bounded directive              CognitiveProjection
+      │                                   │
+      └── src/prompt/renderer.ts          └── src/projection/*
+          (imports only cognitive/*)          (never imported by prompt/ or the controller)
+```
+
+Rules:
+
+1. `src/prompt/renderer.ts` may depend on cognitive state and on nothing that
+   reads persisted history; a test asserts its import list.
+2. Every directive is bounded and deterministic: equal states render identical
+   text, and any state-derived label interpolated into the section is capped.
+3. Historical events must not change an otherwise identical current prompt --
+   covered by a regression test that renders the same session with and without a
+   large historical log behind it.
+4. Future memory integration is an interface, not a runtime dependency:
+   `CognitiveMemorySource` (`src/projection/memory.ts`). The plugin ships
+   `NO_MEMORY`; `cognitive/` and `prompt/` never import it.
+
 ## 3. Integration boundary
 
 Keep DSH-specific code behind an adapter boundary:

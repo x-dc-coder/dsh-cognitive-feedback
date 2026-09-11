@@ -74,6 +74,11 @@ export {
   type SessionAggregate,
 } from './aggregations.js';
 export {
+  NO_MEMORY,
+  createMemorySource,
+  type CognitiveMemorySource,
+} from './memory.js';
+export {
   cachePathFor,
   loadProjectionCache,
   saveProjectionCache,

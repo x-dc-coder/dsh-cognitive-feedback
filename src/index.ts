@@ -129,6 +129,7 @@ export {
   type EpisodeSummary,
   type EpisodeTrigger,
 } from './projection/episodes.js';
+export { NO_MEMORY, createMemorySource, type CognitiveMemorySource } from './projection/memory.js';
 export {
   buildProjection,
   createProjectionCache,

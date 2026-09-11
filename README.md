@@ -64,6 +64,26 @@ Cognitive Controller
               └── future Soul-Spark adapter
 ```
 
+## Prompt / memory boundary
+
+Two data paths are deliberately kept apart:
+
+| | Live prompt | Long-term memory |
+|---|---|---|
+| Input | current `CognitiveState` | raw `CognitiveEvent` log |
+| Producer | `renderCognitiveSection()` (`src/prompt/renderer.ts`) | `buildProjection()` (`src/projection/`) |
+| Output | one bounded directive, or nothing | episodes / sessions / interventions for reports |
+| Cache | byte-stable while the state fingerprint is unchanged | rebuildable at any time |
+
+`src/prompt/renderer.ts` never imports storage, the event log, or the projection
+layer, and a test enforces that structurally. Historical events cannot change an
+otherwise identical current prompt — also covered by a regression test.
+
+Future memory work (Soul-Spark, a database, a summarizer) plugs into the
+`CognitiveMemorySource` interface in `src/projection/memory.ts`. That is a seam,
+not a dependency: the plugin ships an inert `NO_MEMORY` source, and neither the
+policy nor the prompt layer imports it.
+
 ## Design constraints
 
 - **Fail open:** if the plugin fails, normal DSH coding behavior continues.
