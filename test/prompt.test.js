@@ -41,9 +41,9 @@ test('teaching back renders for a pending high-value task', () => {
   assert.match(renderCognitiveSection(state), /Teaching back/);
 });
 
-test('rendering is deterministic for the same state', () => {
-  const state = stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' });
-  assert.equal(renderCognitiveSection(state), renderCognitiveSection(state));
+test('rendering is deterministic across distinct but equal states', () => {
+  const make = () => stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' });
+  assert.equal(renderCognitiveSection(make()), renderCognitiveSection(make()));
 });
 
 test('the renderer memoizes on a stable fingerprint', () => {
@@ -65,13 +65,18 @@ test('the fingerprint changes only when the active intervention changes', () => 
   assert.notEqual(fingerprint(base), fingerprint(changed));
 });
 
-test('no secrets are inserted into the section', () => {
-  const state = stateWith({
-    taskType: 'architecture',
-    currentTopic: 'topic',
-    pendingGate: true,
-    lastGateTopic: 'topic',
-    currentHypothesis: 'SECRET_TOKEN_should_not_appear',
-  });
-  assert.equal(renderCognitiveSection(state).includes('SECRET_TOKEN'), false);
+test('user-authored text is never echoed back into the section', () => {
+  // The section must not reflect raw user input (which may contain secrets)
+  // back into the system prompt.
+  for (const secret of ['SECRET_TOKEN_alpha', 'password=hunter2', 'sk-live-abcdef123456']) {
+    const state = stateWith({
+      taskType: 'architecture',
+      currentTopic: 'refactor-storage',
+      pendingGate: true,
+      lastGateTopic: 'refactor-storage',
+      currentHypothesis: secret,
+      lastUserText: secret,
+    });
+    assert.equal(renderCognitiveSection(state).includes(secret), false, secret);
+  }
 });

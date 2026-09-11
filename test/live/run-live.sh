@@ -102,6 +102,16 @@ run_case() {
 echo "[live] repo=${REPO}"
 echo "[live] out=${OUT_ROOT}"
 echo "[live] runs per arm=${COG_LIVE_RUNS:-1}"
-run_case control false
-run_case treatment true
+# Arm order is a real confound: the provider cache is content-addressed and
+# shared, so whichever arm runs first can warm the prefix the second one hits.
+# COG_LIVE_REVERSE=1 counterbalances that.
+if [ "${COG_LIVE_REVERSE:-0}" = "1" ]; then
+  echo "[live] arm order: treatment first (counterbalanced)"
+  run_case treatment true
+  run_case control false
+else
+  echo "[live] arm order: control first (default)"
+  run_case control false
+  run_case treatment true
+fi
 echo "[live] done"

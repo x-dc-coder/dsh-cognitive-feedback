@@ -121,7 +121,14 @@ A **multi-step** task is required: a single-step task cannot show prefix reuse. 
 COG_LIVE_RUNS=2 COG_LIVE_OUT=/tmp/cog-warm bash test/live/run-live.sh "<prompt>"
 ```
 
-**Known confound.** The two arms do not necessarily run the same number of steps — the model decides when to stop — and the treatment prompt is longer by exactly the section. A whole-run hit rate therefore mixes a fixed cold-start cost over a different number of steps. Compare the **per-step** rows and the steps-2+ hit rate, not only the whole-run aggregate. The numbers in §4.5 were produced with `COG_LIVE_RUNS=1`.
+**Known confounds (all of them).** A single-pass comparison of the two hit rates is not by itself evidence of anything, for four independent reasons:
+
+1. **Step count.** The arms do not necessarily run the same number of steps — the model decides when to stop — and the treatment prompt is longer by exactly the section. A whole-run hit rate mixes one fixed cold-start cost over a different number of steps. Compare the **per-step** rows and the steps-2+ hit rate instead of only the aggregate.
+2. **Arm order.** The provider cache is content-addressed and shared, so whichever arm runs first can warm the prefix the second one hits. Control runs first by default; `COG_LIVE_REVERSE=1` counterbalances.
+3. **Sample size.** The §4.5 numbers are n=1 per arm with no repetitions and no variance. Treat them as an observation, not a measurement.
+4. **`cacheWriteTokens` is 0 in every sample**, so that term never contributes to the denominator; the hit rate reduces to `cacheRead / (cacheRead + inputTokens)`.
+
+The numbers in §4.5 were produced with `COG_LIVE_RUNS=1` and the default arm order. Running each arm twice (once in each order) and reporting medians is the honest way to turn this into a measurement.
 
 ### 4.4 Acceptance
 

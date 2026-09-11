@@ -52,19 +52,23 @@ test('the documented examples behave exactly as docs/examples.md promises', () =
   // Contract test: docs/examples.md is a user-facing promise. Example 3
   // previously returned "none" because symptom-shaped bug reports ("sometimes
   // processes the same job twice") matched no debugging pattern.
+  // [prompt, expected action type, expected reason when the action carries one]
   const cases = [
-    ['Add a `--verbose` flag to the CLI.', 'none'],
-    ['Fix the typo in README.', 'none'],
-    ['Refactor the storage layer so we can support three backends.', 'reasoning_gate'],
-    ['The worker sometimes processes the same job twice. Fix it.', 'prompt'],
-    ['Try a new adaptive partitioning strategy for the VRP experiment.', 'reasoning_gate'],
-    ['I know this pattern well. Just implement the boilerplate.', 'none'],
+    ['Add a `--verbose` flag to the CLI.', 'none', undefined],
+    ['Fix the typo in README.', 'none', undefined],
+    ['Refactor the storage layer so we can support three backends.', 'reasoning_gate', 'architecture'],
+    ['The worker sometimes processes the same job twice. Fix it.', 'prompt', undefined],
+    ['Try a new adaptive partitioning strategy for the VRP experiment.', 'reasoning_gate', 'research'],
+    ['I know this pattern well. Just implement the boilerplate.', 'none', undefined],
   ];
-  for (const [text, expected] of cases) {
+  for (const [text, expected, reason] of cases) {
     const engine = new StateEngine('s1');
     engine.update({ sessionId: 's1', kind: 'user_message', text });
     const action = decide(engine.snapshot(), { budget: { strongUsed: 0, lightUsed: 0 } });
     assert.equal(action.type, expected, text);
+    // Asserting the type alone let the shipped "a research decision" mislabel
+    // for architecture tasks through; the reason is part of the contract too.
+    if (reason !== undefined) assert.equal(action.reason, reason, text);
   }
 });
 

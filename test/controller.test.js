@@ -66,11 +66,13 @@ test('a completed high-value task yields teaching back and a recorded outcome', 
   assert.ok(types.includes('knowledge_gap.detected'));
 });
 
-test('a disabled plugin is fully inert (no events, no section)', async () => {
+test('a disabled plugin is fully inert on every public path', async () => {
   const { controller, sink } = await makeController({ enabled: false });
   await controller.handle('s1', { sessionId: 's1', kind: 'session_started' });
   const action = await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
   assert.deepEqual(action, { type: 'none' });
+  // Every other path must be inert too, not just handle().
+  await controller.completeTeachingBack('s1', 'incorrect', 'topic');
   assert.deepEqual(await sink.readAll(), [], 'a disabled plugin must not write any event');
   assert.equal(controller.renderSection('s1'), '');
 });
@@ -120,4 +122,26 @@ test('the budget suppresses further gates once exhausted', async () => {
   await controller.handle('s1', msg('I think the storage interface leaks backend details.'));
   const second = await controller.handle('s1', msg('Design a new schema for the events table.'));
   assert.equal(second.type, 'none', 'the budget must stop the second gate');
+});
+
+test('sessions keep independent cognitive state', async () => {
+  const { controller } = await makeController();
+  await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
+  const s2 = await controller.handle('s2', { sessionId: 's2', kind: 'user_message', text: 'The worker sometimes processes the same job twice. Fix it.' });
+
+  assert.equal(s2.type, 'prompt', 's2 must be decided on its own merits');
+  assert.match(controller.renderSection('s1'), /Reasoning gate/);
+  assert.match(controller.renderSection('s2'), /Challenge/);
+});
+
+test('a persistence failure does not un-issue the intervention or refund the budget', async () => {
+  const { controller, sink, warnings } = await makeController();
+  // MemorySink fails only the next append, so the gate write is lost.
+  sink.failWith = 'disk full';
+  const action = await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
+
+  assert.equal(action.type, 'reasoning_gate', 'the decision still applies');
+  assert.equal(controller.strongUsed, 1, 'the issued intervention consumes budget even when the log write fails');
+  assert.match(controller.renderSection('s1'), /COGNITIVE FEEDBACK/, 'the directive is still injected');
+  assert.ok(warnings.some((w) => w.includes('persistence failed')), `expected a warning, got ${JSON.stringify(warnings)}`);
 });

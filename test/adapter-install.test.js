@@ -1,0 +1,198 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { installAdapter } from '../lib/dsh-adapter.js';
+
+/**
+ * The DSH integration boundary is where both real defects of this project
+ * lived (a Cordis inject gate that blocked profile boot, and the
+ * prompt-assembly ordering bug), so it must be covered by tests rather than
+ * only by live runs.
+ *
+ * These tests drive `installAdapter` through a fake Cordis context that records
+ * subscriptions, section registrations, and warnings.
+ */
+function makeFakeCtx(options = {}) {
+  /** @type {Map<string, Function[]>} */
+  const listeners = new Map();
+  /** @type {any[]} */
+  const sections = [];
+  const warnings = [];
+  const thrown = new Set(options.throwOn ?? []);
+
+  const record = (event, handler) => {
+    if (thrown.has(event)) throw new Error(`subscription refused: ${event}`);
+    if (!listeners.has(event)) listeners.set(event, []);
+    listeners.get(event).push(handler);
+    return () => {
+      const list = listeners.get(event) ?? [];
+      const index = list.indexOf(handler);
+      if (index >= 0) list.splice(index, 1);
+    };
+  };
+
+  const scoped = {
+    on: record,
+    systemPrompt: {
+      section(definition) {
+        sections.push(definition);
+        return () => {
+          const index = sections.indexOf(definition);
+          if (index >= 0) sections.splice(index, 1);
+        };
+      },
+    },
+  };
+
+  const ctx = {
+    on: record,
+    systemPrompt: scoped.systemPrompt,
+    inject(_deps, callback) {
+      if (thrown.has('inject')) throw new Error('inject refused');
+      callback(scoped);
+    },
+    logger: { warn: (message) => warnings.push(message) },
+  };
+
+  return {
+    ctx,
+    sections,
+    warnings,
+    /** Dispatch an event to every current listener. */
+    emit(event, ...args) {
+      for (const handler of [...(listeners.get(event) ?? [])]) handler(...args);
+    },
+    /** Let the adapter's asynchronous startup settle. */
+    async settle() {
+      for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    },
+  };
+}
+
+/** A minimal stand-in for a DSH Agent handle. */
+function makeAgent(id) {
+  const agentSections = [];
+  return {
+    id,
+    sections: agentSections,
+    ctx: {
+      systemPrompt: {
+        section(definition) {
+          agentSections.push(definition);
+          return () => {};
+        },
+      },
+    },
+  };
+}
+
+test('installAdapter wires the observation and injection surfaces', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:', sectionOrder: 700 });
+  await fake.settle();
+
+  // One global fallback section at the configured order.
+  assert.equal(fake.sections.length, 1);
+  assert.equal(fake.sections[0].order, 700);
+  assert.equal(fake.sections[0].name, 'cognitive-feedback:global');
+
+  // An agent gets its own scoped section at the same order.
+  const agent = makeAgent('session-abc');
+  fake.emit('agent/created', { agent });
+  assert.equal(agent.sections.length, 1);
+  assert.equal(agent.sections[0].order, 700);
+  assert.equal(agent.sections[0].name, 'cognitive-feedback');
+
+  adapter.dispose();
+});
+
+test('a request spliced into the inbox reaches the section during the same assembly', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+
+  const agent = makeAgent('session-1');
+  fake.emit('agent/created', { agent });
+  const section = agent.sections[0];
+
+  assert.equal(section.text(), '', 'no intervention before any request');
+
+  // The inbox splice is what lands before the step's prompt assembly.
+  fake.emit('session/event', { id: 'session-1' }, {
+    type: 'agent/inbox/spliced',
+    data: {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{ role: 'user', content: [{ type: 'text', text: 'Refactor the storage layer so we can support three backends.' }], source: { kind: 'user' } }],
+    },
+  });
+
+  assert.match(section.text(), /COGNITIVE FEEDBACK/);
+  assert.match(section.text(), /an architecture decision/);
+  assert.equal(adapter.controller.strongUsed, 1);
+
+  adapter.dispose();
+});
+
+test('the same request delivered twice is decided once', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+
+  const text = 'Refactor the storage layer so we can support three backends.';
+  const splice = { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [{ role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }] } };
+  const logged = { type: 'user/message', data: { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } } };
+
+  fake.emit('session/event', { id: 'session-1' }, splice);
+  fake.emit('session/event', { id: 'session-1' }, logged);
+
+  assert.equal(adapter.controller.strongUsed, 1, 'a duplicate delivery must not double-charge the budget');
+  const events = await adapter.controller.sink.readAll();
+  assert.equal(events.filter((e) => e.type === 'intervention.triggered').length, 1);
+
+  adapter.dispose();
+});
+
+test('dispose stops observation', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+  adapter.dispose();
+
+  fake.emit('session/event', { id: 'session-1' }, {
+    type: 'agent/inbox/spliced',
+    data: { target: 'next-turn', start: 0, inserted: [{ content: [{ type: 'text', text: 'Refactor the storage layer for three backends.' }], source: { kind: 'user' } }] },
+  });
+
+  assert.equal(adapter.controller.strongUsed, 0, 'no signal is handled after disposal');
+});
+
+test('a failing subscription is logged, not thrown', async () => {
+  const fake = makeFakeCtx({ throwOn: ['session/event'] });
+  let adapter;
+  assert.doesNotThrow(() => {
+    adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  });
+  await fake.settle();
+  assert.ok(fake.warnings.some((w) => w.includes('session/event')), `expected a warning, got ${JSON.stringify(fake.warnings)}`);
+  adapter.dispose();
+});
+
+test('an unavailable systemPrompt service degrades instead of throwing', async () => {
+  const fake = makeFakeCtx({ throwOn: ['inject'] });
+  let adapter;
+  assert.doesNotThrow(() => {
+    adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  });
+  await fake.settle();
+  assert.equal(fake.sections.length, 0, 'no section is registered without the service');
+  assert.ok(fake.warnings.some((w) => w.includes('systemPrompt')));
+  adapter.dispose();
+});
+
+test('a failing session/created subscription still leaves the adapter usable', async () => {
+  const fake = makeFakeCtx({ throwOn: ['session/created'] });
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+  assert.ok(fake.warnings.length > 0);
+  adapter.dispose();
+});
