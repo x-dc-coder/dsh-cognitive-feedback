@@ -9,21 +9,31 @@ npm run build          # tests run against dist/
 node --test test/*.test.js
 ```
 
-They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **78 tests across 10 files.**
+They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **133 tests across 16 files.**
 
 | File | Covers |
 |---|---|
 | `classify.test.js` | routine vs high-value classification, hypothesis detection, deterministic topic keys |
 | `state.test.js` | state transitions, reference stability for unchanged signals, gate→hypothesis conversion |
 | `policy.test.js` | gate / challenge / teaching-back decisions, budget suppression, disabled config, and a **contract test replaying all six documented examples from `docs/examples.md`** |
-| `prompt.test.js` | bounded delimited rendering, determinism, fingerprint memoization, no secrets |
+| `prompt.test.js` | bounded delimited rendering, determinism, fingerprint memoization, no secrets, **the static import boundary that keeps the renderer away from the event log**, and history-independence |
 | `storage.test.js` | schema version, unique ids, append-only JSONL, malformed-line tolerance |
-| `controller.test.js` | end-to-end decision flow, budget persistence across restarts, **fail-open on sink errors** |
+| `controller.test.js` | end-to-end decision flow, budget persistence across restarts, **fail-open on sink errors**, and the teaching-back directive/answer loop |
+| `events.test.js` | rolling 24h budget window, strong-only counting, malformed-timestamp tolerance |
+| `correlation.test.js` | stable `interventionId`/`episodeId` lifecycles, heuristic-free joins on an identical-clock log, interrupted/abandoned interventions, simultaneous sessions, JSONL round trip, legacy-event compatibility |
+| `episode.test.js` | deterministic episode reconstruction: full lifecycle, interrupted episodes, missing terminators, multi-session separation, legacy logs, prompt exclusion |
+| `teaching-back.test.js` | deterministic evidence extraction (strong / weak / skipped / unrelated), user-expressed confidence, **no answer text persisted**, gap origins, host-supplied grades |
+| `projection.test.js` | one-pass session/intervention aggregation, rebuild determinism, stale **and** corrupt cache discard, fail-open builder, and report-CLI smoke tests proving a repeat report hits the cache |
+| `metrics.test.js` | exposure / response / outcome / utilization, `null` denominators, identical metrics after a JSONL round trip, baseline-vs-feedback comparison with its caveat, pre-correlation logs |
+| `learning.test.js` | topic normalization (word-order folding), recurrence aggregation, one-off vs recurring, window-relative recency, resolution/reopening, no-text guarantee |
 | `adapter.test.js` | native-event → cognitive-signal mapping, `$DSH_HOME` path resolution |
 | `adapter-install.test.js` | the **DSH integration boundary** via a fake Cordis context: order-700 section registration (global + agent-scoped), inbox splice reaching the section in the same assembly, duplicate-delivery de-duplication, disposal, **no tool surface touched**, and three failure paths degrading with a warning instead of throwing |
-| `events.test.js` | rolling 24h budget window, strong-only counting, malformed-timestamp tolerance |
-| `controller.test.js` (teaching back) | the directive renders, the answer is observed as `unassessed`, pending clears, and a **later** high-value task can still ask |
 | `concurrency.test.js` | two sessions decided and persisted concurrently produce well-formed, non-interleaved JSONL |
+
+`test/types/type-regressions.ts` additionally covers the correlation fields, the
+`episode.closed` outcome union, gap origins, teaching-back evidence (which cannot
+claim `correct` and has no raw-answer field), and the projection/metrics return
+types.
 
 ### Why the runtime tests are still JavaScript
 
@@ -110,6 +120,39 @@ After the fix, the treatment prompt is measurably larger and contains the sectio
 | treatment (enabled) | 4971 | **1** |
 
 > An earlier revision of this table reported 5421 chars and asserted only *presence*. Both registrations were rendering, so the directive was injected **twice** (2 blocks, 925-char delta). The independent code review caught it; the fix makes both registrations share one section name so DSH's agent-scope shadowing applies. `tools/inspect-session.mjs` now reports the block **count**, and `adapter-install.test.js` asserts cardinality — presence alone cannot catch duplication.
+
+### 3.3 Re-verification after the correlation/episode work (2026-09-11)
+
+Because a controller rewrite can silently regress injection, the live harness was
+re-run against real headless sessions after the seven follow-up issues landed. A
+debugging-shaped request (a level-2 challenge, so no `ask_user_question` pause is
+needed) produced:
+
+| Run | `system/message` | blocks | event log |
+|---|---|---|---|
+| control (`enabled: false`) | 4508 | **0** | **no file created** — inert |
+| treatment (enabled) | 4754 | **1** | `intervention.triggered {level: 2, reason: "debugging"}` **plus `episodeId` and `interventionId`** |
+
+`inspect-session.mjs` also reported a **constant tool schema** (58 tools, one
+distinct signature) and a single `system/message` node, and the model's answer
+asked for the user's hypothesis and evidence, i.e. the section reached it. The
+projection then reconstructed the episode (`status: open`, one intervention)
+from that real log.
+
+**Running the harness in this environment.** The headless profile resolves its
+model route from `$DSH_HOME/settings.yaml`; if that pins a provider only another
+profile has installed, the run fails with
+`NO_ADAPTER: no adapter registered for provider "…"` before the model is called.
+`COG_LIVE_PATCH=<overlay.yml>` appends one extra overlay (applied after the
+generated cognitive patch) so a run can pin `agent-default-model` or point the
+`settings` entry at a run-local settings file:
+
+```yaml
+- id: agent-default-model
+  config: { provider: deepseek-official, model: deepseek-flash }
+- id: settings
+  config: { path: /tmp/cog-live/settings.yaml }
+```
 
 ## 4. Prompt-cache acceptance test
 

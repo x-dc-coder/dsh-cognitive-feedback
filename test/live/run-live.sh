@@ -63,9 +63,19 @@ run_once() {
     cp -R "${REPO}/test/live/fixture/." "${work}/"
   fi
 
+  # COG_LIVE_PATCH points at one extra overlay list applied AFTER the generated
+  # cognitive patch. It exists because the profile's model route may come from
+  # the user's `$DSH_HOME/settings.yaml`, which a headless test cannot assume is
+  # registered in this environment (for example a provider plugin only the web
+  # profile installs). Point it at an overlay that pins `agent-default-model`
+  # and/or the `settings` entry's `path` to a run-local settings file.
+  local extra_patch=""
+  if [ -n "${COG_LIVE_PATCH:-}" ]; then
+    extra_patch="--patch ${COG_LIVE_PATCH}"
+  fi
   echo "[live] ${name}[run ${index}/${RUNS_PER_ARM}]: running (enabled=${enabled}) ..."
   ( cd "${work}" && DEEPSEEK_API_KEY="${KEY}" timeout 280 dsh --profile headless \
-      --patch "${dir}/cognitive.patch.yml" "${PROMPT}" ) \
+      --patch "${dir}/cognitive.patch.yml" ${extra_patch} "${PROMPT}" ) \
       > "${dir}/stdout-${index}.txt" 2> "${dir}/stderr-${index}.txt"
   echo "[live] ${name}[run ${index}]: exit=$?"
 

@@ -153,9 +153,21 @@ The plugin should therefore be developed in the same way it is intended to make 
 The vertical slice works end to end: observe a signal → classify the task → decide whether to intervene → inject a section into the system prompt → record a structured event.
 
 - `src/**/*.ts` — TypeScript source; `dist/` is the built plugin (JS + `.d.ts`)
-- `npm test` — builds, then **78/78 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
+- `npm test` — builds, then **133/133 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
 - `npm run typecheck` — includes type-level regressions (`@ts-expect-error` assertions in `test/types/`)
 - `npm run test:live` — real headless sessions, control vs treatment
+
+**Beyond V0.1** (schema stays v1; every addition is optional/additive):
+
+| Increment | What it added |
+|---|---|
+| correlation | `episodeId`/`interventionId` on every related event, so joins never guess from topic or timestamp |
+| Cognitive Episode | a derived reasoning unit reconstructed from the log, with an explicit `episode.closed` terminator |
+| teaching-back evidence | deterministic evidence extraction (cause, mechanism, concept, confidence, length) instead of a bare grade |
+| prompt / memory boundary | the live renderer is structurally unable to read history; a `CognitiveMemorySource` seam for future memory |
+| projection layer | one-pass session/episode/intervention read models with a rebuildable, discardable cache |
+| longitudinal metrics | exposure / response / outcome / utilization from persisted events, with a baseline comparison and an explicit non-causality caveat |
+| topic learning state | knowledge-gap recurrence aggregated by normalized topic, reporting-only |
 
 Verified live:
 

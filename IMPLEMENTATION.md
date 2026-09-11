@@ -220,3 +220,39 @@ The plugin is ready for a real-world alpha test when:
 - Soul-Spark is not required;
 - plugin failures fail open;
 - automated tests cover policy and storage behavior.
+
+## Post-V0.1 increments (implemented 2026-09-11)
+
+Seven follow-up issues were implemented in the order below. Each is a separate
+commit; all are additive, and the schema stays **v1**.
+
+| Issue | Change | Where |
+|---|---|---|
+| #2 | stable `interventionId` / `episodeId` correlation on every related event | `src/events/types.ts`, `factory.ts`, `queries.ts`, `cognitive/state.ts`, `controller.ts` |
+| #1 | derived Cognitive Episode with deterministic, append-order reconstruction and an explicit `episode.closed` terminator | `src/projection/episodes.ts` |
+| #3 | deterministic teaching-back **evidence** extraction (cause, mechanism, concept, confidence, length); still no correctness claim | `src/cognitive/teaching-back.ts` |
+| #4 | structural prompt / memory boundary + a `CognitiveMemorySource` seam | `src/projection/memory.ts`, `src/prompt/renderer.ts` |
+| #5 | one-pass projection of sessions / episodes / interventions, with a rebuildable and discardable cache | `src/projection/` |
+| #6 | longitudinal metrics grouped as exposure / response / outcome / utilization, plus a period comparison | `src/projection/metrics.ts` |
+| #7 | knowledge-gap recurrence aggregated by normalized topic | `src/projection/learning.ts`, `cognitive/classify.ts` |
+
+### Compatibility rule for these additions
+
+- New **optional** fields (`episodeId`, `interventionId`, `teaching_back.completed.payload.evidence`,
+  `knowledge_gap.detected.payload.origin`) keep `schemaVersion: 1`. A reader that
+  predates them ignores them; events that never carried them stay readable.
+- One new **event type** (`episode.closed`) is additive: an older reader skips
+  unknown types, and reconstruction tolerates its absence (a new episode in the
+  same session, or the session end, implicitly abandons the previous one).
+- A present-but-unusable correlation id (a non-string or an empty one) is
+  **rejected** by `parseCognitiveEvent` rather than silently used as a join key.
+- A pre-correlation log still reports exposure in the metrics; the issues that
+  cannot be joined to a response are reported as `uncorrelatedIssues`.
+
+### Verifying the increments
+
+```bash
+npm test          # 133 unit tests, no DSH required
+npm run typecheck # includes @ts-expect-error assertions for the new contracts
+node tools/cognitive-report.mjs --no-cache --episodes --topics
+```
