@@ -124,6 +124,34 @@ test('the budget suppresses further gates once exhausted', async () => {
   assert.equal(second.type, 'none', 'the budget must stop the second gate');
 });
 
+test('a restart charges strong interventions only to the strong budget', async () => {
+  const { controller, sink } = await makeController();
+  // Two architecture gates (level 3) and answers, no light interventions.
+  await controller.handle('s1', msg('Refactor the storage layer for three backends.'));
+  await controller.handle('s1', msg('I think the storage interface leaks backend details.'));
+  await controller.handle('s1', msg('Design a new schema for the events table.'));
+  assert.equal(controller.strongUsed, 2);
+  assert.equal(controller.lightUsed, 0);
+
+  const restarted = new CognitiveController({ config: {}, sink, now: () => new Date('2026-09-11T01:00:00.000Z') });
+  await restarted.start();
+  assert.equal(restarted.strongUsed, 2);
+  // Regression: start() used to count every intervention into lightUsed, so a
+  // restart let level-3 gates silently eat the light budget.
+  assert.equal(restarted.lightUsed, 0, 'level-3 gates must not consume the light budget after a restart');
+});
+
+test('a disposed session is pruned from the session map', async () => {
+  const { controller } = await makeController();
+  await controller.handle('s1', msg('Refactor the storage layer for three backends.'));
+  assert.equal(controller.sessions.size, 1);
+
+  await controller.handle('s1', { sessionId: 's1', kind: 'session_ended' });
+  // Regression: a long-lived host creates one session per conversation, so an
+  // unpruned map grows without bound.
+  assert.equal(controller.sessions.size, 0);
+});
+
 test('sessions keep independent cognitive state', async () => {
   const { controller } = await makeController();
   await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
