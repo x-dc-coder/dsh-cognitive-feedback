@@ -33,6 +33,15 @@ test('user-authored hypotheses are detected', () => {
   assert.equal(hasHypothesis('Fix it.'), false);
 });
 
+test('topic keys are bounded even for hostile input', () => {
+  // The key is the one user-derived string that can reach the system prompt.
+  // An uncapped key let a single multi-megabyte token inflate the section.
+  const huge = 'a'.repeat(2_000_000);
+  const key = topicKey(`Refactor ${huge} please`);
+  assert.ok(key.length <= 64, `topic key must be capped, got ${key.length}`);
+  assert.ok(topicKey('Refactor the storage layer for three backends').length <= 64);
+});
+
 test('topic keys are deterministic and ignore noise', () => {
   const a = topicKey('Refactor the storage layer for three backends');
   const b = topicKey('Refactor the storage layer for three backends');

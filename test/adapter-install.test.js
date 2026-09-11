@@ -256,6 +256,21 @@ test('an unavailable systemPrompt service degrades instead of throwing', async (
   adapter.dispose();
 });
 
+test('a hostile event payload cannot escape into the host dispatcher', async () => {
+  const fake = makeFakeCtx();
+  const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });
+  await fake.settle();
+
+  // An accessor that throws must be contained by the listener guard: a throw
+  // escaping into DSH dispatch would break coding, which fail-open forbids.
+  assert.doesNotThrow(() => fake.emit('session/event', { id: 's1' }, { get type() { throw new Error('boom'); } }));
+  assert.doesNotThrow(() => fake.emit('session/event', { get id() { throw new Error('boom'); } }, { type: 'turn/end' }));
+  assert.doesNotThrow(() => fake.emit('session/created', { get id() { throw new Error('boom'); } }));
+  assert.ok(fake.warnings.length > 0, 'contained failures are logged');
+
+  adapter.dispose();
+});
+
 test('a failing session/created subscription still leaves the adapter usable', async () => {
   const fake = makeFakeCtx({ throwOn: ['session/created'] });
   const adapter = installAdapter(fake.ctx, { eventsPath: ':memory:' });

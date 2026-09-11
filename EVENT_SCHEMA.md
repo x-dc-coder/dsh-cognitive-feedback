@@ -76,6 +76,21 @@ type CognitiveEvent = {
 }
 ```
 
+## Teaching-back results
+
+`teaching_back.completed.payload.result` is one of:
+
+| Value | Meaning |
+|---|---|
+| `correct` / `partially_correct` / `incorrect` | A grader judged the explanation (not produced by V0.1) |
+| `unassessed` | The user gave an explanation; **V0.1 does not grade it** |
+| `skipped` | No explanation was given (too short, or an explicit skip) |
+
+V0.1 emits only `unassessed` and `skipped`. Judging correctness needs semantic
+understanding the deterministic implementation does not have, and guessing would
+put a fabricated signal in the log. The grade-bearing values stay in the schema
+for a future evaluator.
+
 ## Privacy principles
 
 By default, the plugin should **not** persist:

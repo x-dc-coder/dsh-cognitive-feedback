@@ -66,6 +66,51 @@ test('a completed high-value task yields teaching back and a recorded outcome', 
   assert.ok(types.includes('knowledge_gap.detected'));
 });
 
+test('teaching back renders, is answered, and can fire again later', async () => {
+  const { controller, sink } = await makeController();
+  await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
+  await controller.handle('s1', msg('I think the storage interface leaks backend details.'));
+  await controller.handle('s1', { sessionId: 's1', kind: 'assistant_message', text: 'Implemented.' });
+
+  const issued = await controller.handle('s1', msg('Thanks, that looks good.'));
+  assert.equal(issued.type, 'teaching_back');
+  // Regression: recordAction used to clear teachingBackPending, so the section
+  // stopped rendering in the same assembly and the model NEVER saw the
+  // directive — teaching back was a silent no-op.
+  assert.match(controller.renderSection('s1'), /Teaching back/);
+
+  await controller.handle('s1', msg('It works because one interface now hides the three adapters behind a single contract.'));
+  const events = await sink.readAll();
+  const completed = events.find((e) => e.type === 'teaching_back.completed');
+  // V0.1 observes that an answer was given; it does not grade it.
+  assert.equal(completed?.payload.result, 'unassessed');
+  assert.equal(controller.session('s1').engine.snapshot().teachingBackPending, false);
+
+  // Regression: lastActionType stayed 'teaching_back' forever, so every later
+  // high-value task silently stopped producing a check.
+  await controller.handle('s1', msg('Now benchmark a new adaptive partitioning strategy for the VRP experiment.'));
+  await controller.handle('s1', msg('I expect adaptive partitioning to cut latency because static buckets skew.'));
+  await controller.handle('s1', { sessionId: 's1', kind: 'assistant_message', text: 'Done.' });
+  const again = await controller.handle('s1', msg('ok thanks'));
+  assert.equal(again.type, 'teaching_back', 'a later high-value task must still be able to ask');
+});
+
+test('handle degrades instead of rejecting on a hostile signal', async () => {
+  const { controller } = await makeController();
+  const hostile = { sessionId: 's1', kind: 'user_message', get text() { throw new Error('boom'); } };
+  let action;
+  await assert.doesNotReject(async () => {
+    action = await controller.handle('s1', hostile);
+  });
+  assert.deepEqual(action, { type: 'none' }, 'the public API must uphold fail-open');
+});
+
+test('completeTeachingBack never rejects, even with a bogus result', async () => {
+  const { controller, sink } = await makeController();
+  sink.failWith = 'disk full';
+  await assert.doesNotReject(() => controller.completeTeachingBack('s1', 'nonsense', 'topic'));
+});
+
 test('a disabled plugin is fully inert on every public path', async () => {
   const { controller, sink } = await makeController({ enabled: false });
   await controller.handle('s1', { sessionId: 's1', kind: 'session_started' });
