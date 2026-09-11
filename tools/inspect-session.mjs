@@ -106,6 +106,17 @@ for (const event of events) {
   });
 }
 
+// --- tool schema set (proves the plugin never changes it) ---------------
+const toolSets = [];
+for (const event of events) {
+  if (typeOf(event) !== 'request/header') continue;
+  const tools = event.data?.header?.tools;
+  if (!Array.isArray(tools)) continue;
+  const names = tools.map((tool) => tool.name).sort();
+  toolSets.push({ seq: event.seq, count: names.length, signature: names.join(',') });
+}
+const uniqueToolSignatures = [...new Set(toolSets.map((s) => s.signature))];
+
 const sum = (key) => usageSamples.reduce((acc, s) => acc + (s[key] ?? 0), 0);
 const cacheRead = sum('cacheReadTokens');
 const cacheWrite = sum('cacheWriteTokens');
@@ -120,6 +131,12 @@ const report = {
     count: systemNodes.length,
     withCognitiveSection: systemNodes.filter((n) => n.hasCognitive).length,
     nodes: systemNodes.map(({ text, ...rest }) => rest),
+  },
+  toolSchema: {
+    requests: toolSets.length,
+    toolCount: toolSets[0]?.count ?? null,
+    uniqueSignatures: uniqueToolSignatures.length,
+    names: toolSets[0] ? toolSets[0].signature.split(',') : [],
   },
   usage: {
     samples: usageSamples.length,
@@ -141,6 +158,8 @@ if (asJson) {
     console.log(`  seq=${node.seq} turn=${node.turn} step=${node.step} len=${node.length} cognitive=${node.hasCognitive}`);
     console.log(`    head: ${JSON.stringify(node.head)}`);
   }
+  console.log(`tool schema: ${toolSets.length} request(s), ${report.toolSchema.toolCount ?? '?'} tools, ${uniqueToolSignatures.length} unique signature(s)`);
+  if (uniqueToolSignatures.length > 1) console.log('  !! TOOL SET CHANGED BETWEEN REQUESTS');
   console.log(`usage samples: ${usageSamples.length}`);
   for (const s of usageSamples) {
     console.log(`  seq=${s.seq} ${s.type} cacheRead=${s.cacheReadTokens} cacheWrite=${s.cacheWriteTokens} uncachedInput=${s.inputTokens} output=${s.outputTokens}`);

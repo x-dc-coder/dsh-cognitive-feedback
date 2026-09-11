@@ -8,7 +8,7 @@ Two layers, both required. Unit tests prove the cognitive logic; live tests prov
 node --test test/*.test.js
 ```
 
-They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7).
+They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **67 tests across 10 files.**
 
 | File | Covers |
 |---|---|
@@ -19,6 +19,9 @@ They import the core modules directly, so they run in milliseconds with no DSH i
 | `storage.test.js` | schema version, unique ids, append-only JSONL, malformed-line tolerance |
 | `controller.test.js` | end-to-end decision flow, budget persistence across restarts, **fail-open on sink errors** |
 | `adapter.test.js` | native-event → cognitive-signal mapping, `$DSH_HOME` path resolution |
+| `adapter-install.test.js` | the **DSH integration boundary** via a fake Cordis context: order-700 section registration (global + agent-scoped), inbox splice reaching the section in the same assembly, duplicate-delivery de-duplication, disposal, **no tool surface touched**, and three failure paths degrading with a warning instead of throwing |
+| `events.test.js` | rolling 24h budget window, strong-only counting, malformed-timestamp tolerance |
+| `concurrency.test.js` | two sessions decided and persisted concurrently produce well-formed, non-interleaved JSONL |
 
 ## 2. Live tests (real DSH session)
 
