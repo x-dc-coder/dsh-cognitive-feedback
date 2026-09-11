@@ -1,0 +1,15 @@
+# Bundle patch for dsh-cognitive-feedback.
+#
+# Install into a profile with either:
+#   dsh plugin --profile <name> add /home/dc/projects/dsh-cognitive-feedback
+# or by adding this row to the profile/home cordis.patch.yml:
+#   - insert:
+#       - id: cognitive-feedback
+#         name: /home/dc/projects/dsh-cognitive-feedback/lib/index.js
+#
+# The plugin adds one agent-scoped system-prompt section (order 700) and
+# observes session/agent events. It registers no tools and changes no tool
+# schema, so prompt-cache reuse is never invalidated by a tool-set change.
+- insert:
+    - id: cognitive-feedback
+      name: dsh-cognitive-feedback

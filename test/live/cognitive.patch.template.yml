@@ -1,0 +1,7 @@
+- insert:
+    - id: cognitive-feedback
+      name: /home/dc/projects/dsh-cognitive-feedback/lib/index.js
+      config:
+        enabled: __ENABLED__
+        eventsPath: __EVENTS__
+        sectionOrder: 700
