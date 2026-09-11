@@ -14,7 +14,7 @@ They import the core modules directly, so they run in milliseconds with no DSH i
 |---|---|
 | `classify.test.js` | routine vs high-value classification, hypothesis detection, deterministic topic keys |
 | `state.test.js` | state transitions, reference stability for unchanged signals, gate→hypothesis conversion |
-| `policy.test.js` | gate / challenge / teaching-back decisions, budget suppression, disabled config |
+| `policy.test.js` | gate / challenge / teaching-back decisions, budget suppression, disabled config, and a **contract test replaying all six documented examples from `docs/examples.md`** |
 | `prompt.test.js` | bounded delimited rendering, determinism, fingerprint memoization, no secrets |
 | `storage.test.js` | schema version, unique ids, append-only JSONL, malformed-line tolerance |
 | `controller.test.js` | end-to-end decision flow, budget persistence across restarts, **fail-open on sink errors** |
