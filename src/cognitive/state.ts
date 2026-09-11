@@ -1,21 +1,58 @@
 /**
- * State Engine — short-lived cognitive state.
+ * State Engine -- short-lived cognitive state.
  *
- * Cache discipline: `stateVersion` bumps ONLY on a meaningful change, and the
+ * Cache discipline: \`stateVersion\` bumps ONLY on a meaningful change, and the
  * store returns the *same object reference* when nothing changed. The prompt
  * renderer keys its memo on that version, so an unchanged state produces a
  * byte-identical cognitive section and the assembled prompt prefix stays
- * reusable (see docs/testing.md).
+ * reusable.
  *
- * @module dsh-cognitive-feedback/state
+ * Fields that can be cleared are typed \`T | undefined\` rather than optional, so
+ * clearing is explicit and type-checked under \`exactOptionalPropertyTypes\`.
+ *
+ * @module dsh-cognitive-feedback/cognitive/state
  */
-import { analyzeMessage } from './classify.js';
+import { analyzeMessage, type TaskType } from './classify.js';
+
+/** Intervention intensity, proportional to uncertainty and cognitive value. */
+export type InterventionLevel = 0 | 1 | 2 | 3;
+
+/** Which cognitive mode the session is in. */
+export type CognitiveMode = 'normal' | 'learning' | 'challenge' | 'research';
+
+/** Outcome recorded for a teaching-back check. */
+export type TeachingBackResult = 'correct' | 'partially_correct' | 'incorrect' | 'skipped' | 'unassessed';
 
 /**
- * @param {string} sessionId
- * @returns {import('./types.js').CognitiveState & Record<string, any>}
+ * Short-lived state driving current behavior. Never a long-term user profile.
+ *
+ * The first block mirrors the documented V0.1 cognitive model; the second is
+ * operational bookkeeping the behavior needs.
  */
-export function createState(sessionId) {
+export interface CognitiveState {
+  sessionId: string;
+  mode: CognitiveMode;
+  taskType: TaskType | undefined;
+  interventionLevel: InterventionLevel;
+  recentDecisionOutsourcing: number;
+  recentUnexplainedImplementations: number;
+  currentTopic: string | undefined;
+  currentHypothesis: string | undefined;
+  /** Monotonic version; bumps only on real change. */
+  stateVersion: number;
+
+  pendingGate: boolean;
+  lastGateTopic: string | undefined;
+  lastActionType: 'none' | 'prompt' | 'reasoning_gate' | 'teaching_back';
+  lastActionTopic: string | undefined;
+  teachingBackPending: boolean;
+  completedHighValueTopic: string | undefined;
+  /** Latest user-authored text, kept only in memory for the current turn. */
+  lastUserText: string | undefined;
+}
+
+/** A freshly created state for one session. */
+export function createState(sessionId: string): CognitiveState {
   return {
     sessionId,
     mode: 'normal',
@@ -26,43 +63,37 @@ export function createState(sessionId) {
     currentTopic: undefined,
     currentHypothesis: undefined,
     stateVersion: 0,
-    // Operational fields (still short-lived, still never a user profile).
     pendingGate: false,
     lastGateTopic: undefined,
     lastActionType: 'none',
     lastActionTopic: undefined,
     teachingBackPending: false,
     completedHighValueTopic: undefined,
-    /** Latest user-authored text, kept only in memory for the current turn. */
     lastUserText: undefined,
   };
 }
 
 /** Immutable bump: returns a new state with stateVersion + 1. */
-function bump(state, patch) {
+function bump(state: CognitiveState, patch: Partial<CognitiveState>): CognitiveState {
   return { ...state, ...patch, stateVersion: state.stateVersion + 1 };
 }
 
 export class StateEngine {
-  /** @param {string} sessionId */
-  constructor(sessionId) {
-    /** @type {ReturnType<typeof createState>} */
+  private state: CognitiveState;
+
+  constructor(sessionId: string) {
     this.state = createState(sessionId);
   }
 
-  /** @returns {ReturnType<typeof createState>} */
-  snapshot() {
+  snapshot(): CognitiveState {
     return this.state;
   }
 
   /**
    * Apply one normalized signal. Returns the current state; the reference is
    * unchanged when the signal produced no meaningful difference.
-   *
-   * @param {import('./types.js').CognitiveSignal} signal
-   * @returns {ReturnType<typeof createState>}
    */
-  update(signal) {
+  update(signal: import('./signal.js').CognitiveSignal): CognitiveState {
     const s = this.state;
     if (signal.kind === 'session_started') {
       if (s.mode === 'normal' && s.stateVersion === 0) return this.state;
@@ -87,18 +118,15 @@ export class StateEngine {
     }
 
     const topicChanged = info.topic !== s.currentTopic && info.topic !== '';
-    const patch = {};
+    const patch: Partial<CognitiveState> = {};
     let changed = false;
 
     if (topicChanged) {
       patch.currentTopic = info.topic;
-      // A new topic invalidates the previous hypothesis and clears gate memory.
       patch.currentHypothesis = undefined;
       patch.pendingGate = false;
       patch.lastGateTopic = undefined;
-      // Also reset action memory. Without this, lastActionType stayed
-      // 'teaching_back' forever, so every later high-value task silently
-      // stopped producing a teaching-back check.
+      // Reset action memory so a later high-value task can ask again.
       patch.lastActionType = 'none';
       patch.lastActionTopic = undefined;
       // teachingBackPending is deliberately NOT cleared here: any user reply
@@ -142,13 +170,16 @@ export class StateEngine {
   /**
    * Record the outcome of a policy decision so cooldowns and teaching-back
    * tracking reflect it. Always a meaningful change.
-   *
-   * @param {import('./types.js').PolicyAction} action
-   * @param {string|undefined} topic
    */
-  recordAction(action, topic) {
+  recordAction(action: import('./policy.js').PolicyAction, topic: string | undefined): CognitiveState {
     const s = this.state;
-    const patch = { lastActionType: action.type, lastActionTopic: topic, interventionLevel: /** @type {any} */ (action.type === 'prompt' ? action.level : action.type === 'reasoning_gate' ? 3 : action.type === 'teaching_back' ? 1 : 0) };
+    const level: InterventionLevel =
+      action.type === 'prompt' ? action.level : action.type === 'reasoning_gate' ? 3 : action.type === 'teaching_back' ? 1 : 0;
+    const patch: Partial<CognitiveState> = {
+      lastActionType: action.type,
+      lastActionTopic: topic,
+      interventionLevel: level,
+    };
     if (action.type === 'reasoning_gate') {
       patch.pendingGate = true;
       patch.lastGateTopic = topic;
@@ -159,12 +190,15 @@ export class StateEngine {
     // in the very same assembly, so the model never saw the directive. The
     // directive stays live until the user answers it (see the controller's
     // completion branch) or the topic changes.
+    if (action.type === 'teaching_back') {
+      patch.lastActionTopic = topic;
+    }
     this.state = bump(s, patch);
     return this.state;
   }
 
   /** Mark that a high-value task finished and deserves a teaching-back check. */
-  markHighValueCompleted(topic) {
+  markHighValueCompleted(topic: string | undefined): CognitiveState {
     this.state = bump(this.state, {
       teachingBackPending: true,
       completedHighValueTopic: topic,
@@ -173,7 +207,7 @@ export class StateEngine {
   }
 
   /** Record a teaching-back outcome; repeated gaps feed the knowledge-gap signal. */
-  recordTeachingBack(result) {
+  recordTeachingBack(result: TeachingBackResult): CognitiveState {
     const s = this.state;
     const unexplained = result === 'skipped' || result === 'incorrect' || result === 'partially_correct';
     this.state = bump(s, {

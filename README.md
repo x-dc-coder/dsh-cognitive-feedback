@@ -85,9 +85,39 @@ Cognitive Controller
 - `docs/testing.md` — unit + live acceptance tests, including dynamic prompt injection and cache impact
 - `docs/examples.md` — expected runtime behavior examples
 - `docs/development-workflow.md` — recommended human/AI development loop
+- `src/` — TypeScript implementation (the only source; `lib/*.js` no longer exists)
+- `dist/` — build output loaded by DSH (generated; not committed)
 - `tools/inspect-session.mjs` — Session V3 log inspector: injection evidence + cache metrics
 - `tools/cognitive-report.mjs` — review the append-only event log: funnel, intervention reasons, teaching-back outcomes, timeline
 - `test/` — unit tests and the live headless acceptance harness
+
+## Development
+
+```bash
+npm install
+npm run resolve:dsh-types   # map @deepseek-ai/* to the INSTALLED harness types (read-only)
+npm run build               # tsc -> dist/ (JavaScript + .d.ts)
+npm run typecheck           # type check, including test/types/*.ts regressions
+npm test                    # build + unit tests
+npm run test:live "<prompt>"  # real headless DSH sessions (control vs treatment)
+```
+
+### Why the DSH types are mapped, not installed
+
+The published `@deepseek-ai` packages disagree with each other on peer ranges
+(`dsh-agent@0.1.5-rc.1` pulls `dsh-session-projection@^0.1.5-rc.1`, whose newest
+match demands `dsh-session@^0.1.5-rc.2` while the harness ships `0.1.5-rc.1`), so
+npm refuses to resolve the tree.
+
+`resolve:dsh-types` therefore writes a **gitignored** `tsconfig.dsh.json` that
+maps `@deepseek-ai/*` straight at the installed harness declarations. It is
+read-only and writes nothing outside this repository. That is also more correct
+than installing: the plugin is type-checked against exactly the version it runs on.
+
+> An earlier revision of this workflow symlinked the harness packages into this
+> project's `node_modules`. A later `npm install` followed the link and pruned
+> roughly 240 packages out of the global harness install. Path mapping cannot do
+> that, so it is the only mechanism used now.
 
 ## Development philosophy
 
@@ -101,9 +131,10 @@ The plugin should therefore be developed in the same way it is intended to make 
 
 The vertical slice works end to end: observe a signal → classify the task → decide whether to intervene → inject a section into the system prompt → record a structured event.
 
-- `lib/` — dependency-free ESM plugin (no build step)
-- `node --test test/*.test.js` — **78/78 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
-- `bash test/live/run-live.sh "<prompt>"` — real headless sessions, control vs treatment
+- `src/**/*.ts` — TypeScript source; `dist/` is the built plugin (JS + `.d.ts`)
+- `npm test` — builds, then **78/78 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
+- `npm run typecheck` — includes type-level regressions (`@ts-expect-error` assertions in `test/types/`)
+- `npm run test:live` — real headless sessions, control vs treatment
 
 Verified live:
 

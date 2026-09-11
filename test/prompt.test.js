@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderCognitiveSection, createSectionRenderer, fingerprint, SECTION_NAME } from '../lib/prompt.js';
-import { createState } from '../lib/state.js';
+import { renderCognitiveSection, createSectionRenderer, fingerprint, SECTION_NAME } from '../dist/prompt/renderer.js';
+import { createState } from '../dist/cognitive/state.js';
 
 /** @param {Partial<ReturnType<typeof createState>>} patch */
 const stateWith = (patch) => ({ ...createState('s1'), ...patch });

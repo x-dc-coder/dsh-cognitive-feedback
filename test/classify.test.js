@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeMessage, classifyTask, hasHypothesis, isRoutine, topicKey } from '../lib/classify.js';
+import { analyzeMessage, classifyTask, hasHypothesis, isRoutine, topicKey } from '../dist/cognitive/classify.js';
 
 test('routine work is detected and classified as implementation', () => {
   for (const text of [

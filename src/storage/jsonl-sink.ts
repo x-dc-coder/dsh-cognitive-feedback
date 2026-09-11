@@ -3,6 +3,7 @@
  *
  * - one JSON object per line, never rewritten;
  * - a malformed line is skipped on read instead of crashing the reader;
+ * - a line that parses but is not a well-formed v1 event is skipped too;
  * - writes create the parent directory on demand;
  * - write failures throw so the controller can warn and continue (fail open).
  *
@@ -10,18 +11,20 @@
  */
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { parseCognitiveEvent } from '../events/queries.js';
+import type { CognitiveEvent } from '../events/types.js';
+import type { CognitiveEventSink } from './sink.js';
 
-/** @implements {import('./sink.js').CognitiveEventSink} */
-export class JsonlSink {
-  /** @param {string} path */
-  constructor(path) {
+export class JsonlSink implements CognitiveEventSink {
+  readonly path: string;
+  private directoryReady = false;
+
+  constructor(path: string) {
     if (!path) throw new Error('JsonlSink requires a path');
     this.path = path;
-    this.directoryReady = false;
   }
 
-  /** @param {import('../types.js').CognitiveEvent} event */
-  async append(event) {
+  async append(event: CognitiveEvent): Promise<void> {
     if (!this.directoryReady) {
       mkdirSync(dirname(this.path), { recursive: true });
       this.directoryReady = true;
@@ -29,25 +32,26 @@ export class JsonlSink {
     appendFileSync(this.path, `${JSON.stringify(event)}\n`, 'utf8');
   }
 
-  /** @returns {Promise<import('../types.js').CognitiveEvent[]>} */
-  async readAll() {
-    let raw;
+  async readAll(): Promise<CognitiveEvent[]> {
+    let raw: string;
     try {
       raw = readFileSync(this.path, 'utf8');
     } catch (error) {
-      if (/** @type {any} */ (error)?.code === 'ENOENT') return [];
+      if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return [];
       throw error;
     }
-    /** @type {import('../types.js').CognitiveEvent[]} */
-    const events = [];
+    const events: CognitiveEvent[] = [];
     for (const line of raw.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      let parsed: unknown;
       try {
-        events.push(JSON.parse(trimmed));
+        parsed = JSON.parse(trimmed);
       } catch {
-        // Malformed persistence must not crash the controller.
+        continue; // Malformed persistence must not crash the controller.
       }
+      const event = parseCognitiveEvent(parsed);
+      if (event) events.push(event);
     }
     return events;
   }

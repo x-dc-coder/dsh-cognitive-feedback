@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CognitiveController } from '../lib/controller.js';
-import { MemorySink } from '../lib/storage/memory-sink.js';
+import { CognitiveController } from '../dist/cognitive/controller.js';
+import { MemorySink } from '../dist/storage/memory-sink.js';
 
 /** Build a controller wired to an in-memory sink. */
 async function makeController(config = {}) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { StateEngine, createState } from '../lib/state.js';
+import { StateEngine, createState } from '../dist/cognitive/state.js';
 
 test('createState starts in normal mode with no intervention', () => {
   const s = createState('s1');

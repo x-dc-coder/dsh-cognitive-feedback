@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { JsonlSink } from '../lib/storage/jsonl-sink.js';
-import { MemorySink } from '../lib/storage/memory-sink.js';
-import { makeEvent } from '../lib/events.js';
-import { SCHEMA_VERSION } from '../lib/types.js';
+import { JsonlSink } from '../dist/storage/jsonl-sink.js';
+import { MemorySink } from '../dist/storage/memory-sink.js';
+import { makeEvent } from '../dist/events/factory.js';
+import { SCHEMA_VERSION } from '../dist/events/types.js';
 
 const tmpFile = () => join(mkdtempSync(join(tmpdir(), 'cog-')), 'events.jsonl');
 

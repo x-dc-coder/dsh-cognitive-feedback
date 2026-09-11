@@ -86,34 +86,56 @@ The exact path remains configurable through plugin config.
 
 ## Actual source layout (implemented)
 
-The verified DSH plugin convention is a **dependency-free ESM package** loaded by absolute path or `dsh plugin add` — DSH itself ships compiled `lib/*.js`, and every local plugin follows the same shape. V0.1 therefore ships plain ESM JavaScript with JSDoc types and **no build step** (`AGENTS.md` §3: no complicated dependency graph). TypeScript remains a possible later migration once the surface is stable.
+The plugin is written in **TypeScript** and compiled to dependency-free ESM. DSH loads the build output; it never sees the sources.
 
 ```text
-lib/
-├── index.js            # plugin entry: name + apply(ctx, config)
-├── dsh-adapter.js      # the ONLY DSH-aware layer (events, section, signals)
-├── controller.js       # thin orchestrator: state → policy → events → section
-├── state.js            # StateEngine (cache-stable versioning)
-├── classify.js         # deterministic task / hypothesis classifier
-├── policy.js           # deterministic policy + budget
-├── prompt.js           # section rendering + memoizing renderer
-├── events.js           # event construction + rolling-window budget count
-├── types.js            # JSDoc typedefs + SCHEMA_VERSION
+src/
+├── index.ts                 # plugin entry: name + apply(ctx, config)
+├── dsh-adapter.ts           # the ONLY DSH-aware layer (events, section, signals)
+├── cognitive/
+│   ├── controller.ts        # orchestrator: state -> policy -> events -> section
+│   ├── state.ts             # StateEngine (cache-stable versioning)
+│   ├── policy.ts            # deterministic policy + budget
+│   ├── classify.ts          # deterministic task / hypothesis classifier
+│   └── signal.ts            # the normalized signal the adapter produces
+├── prompt/
+│   └── renderer.ts          # section rendering + memoizing renderer
+├── events/
+│   ├── types.ts             # versioned contract; payloads as a discriminated union
+│   ├── factory.ts           # event construction
+│   └── queries.ts           # read path + runtime narrowing of untrusted JSON
 └── storage/
-    ├── sink.js         # CognitiveEventSink contract
-    ├── jsonl-sink.js   # default append-only store
-    └── memory-sink.js  # tests / read-only hosts
-tools/
-└── inspect-session.mjs # Session V3 log inspector (injection + cache metrics)
+    ├── sink.ts              # CognitiveEventSink interface
+    ├── jsonl-sink.ts        # default append-only store
+    └── memory-sink.ts       # tests / read-only hosts
 test/
-├── *.test.js           # unit + adapter tests (`node --test`), no DSH required
-└── live/               # real headless-session acceptance harness
+├── *.test.js                # unit + adapter tests against dist/ (no DSH required)
+├── types/type-regressions.ts# compile-only @ts-expect-error assertions
+└── live/                    # real headless-session acceptance harness
 ```
 
-Two documented deviations from the original sketch:
+Deviations from the sketched layout, and why:
 
-- `gate.ts` / `teaching-back.ts` are not separate modules. The gate is a *policy action plus a rendered directive*, not an event loop; keeping it inside `policy.js` + `prompt.js` preserves the "no second agent loop" boundary and avoids two files that would only hold constants.
-- The plugin declares **no static `inject`**. A Cordis `inject` gate is *required*, not optional: an entry waiting on it never activates and fails the whole profile boot (observed live against rc.1). Optional service use goes through `ctx.inject(['systemPrompt'], cb)` instead.
+- **`cognitive/signal.ts`** holds `CognitiveSignal`. Putting it in the adapter would make the core import the adapter and invert the dependency direction; the adapter depends on the core, never the reverse.
+- **No `episodes/`.** The issue that proposed this layout explicitly excludes the Cognitive Episode feature (that is a separate issue), and unused type stubs would be dead code.
+- **No `gate.ts` / `teaching-back.ts`.** The gate is a policy action plus a rendered directive, not an event loop; teaching back is state-driven. Splitting them would produce files holding only constants.
+- **The plugin declares no static `inject`.** A Cordis `inject` gate is *required*: an entry waiting on it never activates and fails the whole profile boot (observed live against rc.1). Optional service use goes through `ctx.inject(['systemPrompt'], cb)`.
+
+### Build, type and test
+
+```bash
+npm run resolve:dsh-types   # map DSH types to the INSTALLED harness (read-only)
+npm run build               # tsc -> dist/ (JS + .d.ts)
+npm run typecheck           # src + test/types, no emit
+npm test                    # build, then node --test test/*.test.js
+npm run test:live "<prompt>"  # real headless sessions
+```
+
+### Type-boundary policy
+
+- `tsc` runs with `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess` and `verbatimModuleSyntax`.
+- No `any` is used to pass the DSH API boundary. The single assertion is `AgentWithScopedContext` in `dsh-adapter.ts`: `agent.ctx` is documented in the dsh-agent README but is absent from the public `Agent` interface (which declares only `id`), so it has no official type at the rc.1 baseline. The assertion is confined to that boundary and carries the reason inline.
+- Parsed JSONL is **untrusted**: `parseCognitiveEvent` narrows it at runtime, so nothing wears the `CognitiveEvent` type without earning it.
 
 ## Deterministic policy examples
 

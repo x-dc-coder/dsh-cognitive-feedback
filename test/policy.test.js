@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, DEFAULT_CONFIG, activeIntervention } from '../lib/policy.js';
-import { StateEngine, createState } from '../lib/state.js';
+import { decide, DEFAULT_CONFIG, activeIntervention } from '../dist/cognitive/policy.js';
+import { StateEngine, createState } from '../dist/cognitive/state.js';
 
 /** @param {Partial<ReturnType<typeof createState>>} patch */
 const stateWith = (patch) => ({ ...createState('s1'), ...patch });

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CognitiveController } from '../lib/controller.js';
-import { JsonlSink } from '../lib/storage/jsonl-sink.js';
+import { CognitiveController } from '../dist/cognitive/controller.js';
+import { JsonlSink } from '../dist/storage/jsonl-sink.js';
 
 const msg = (sessionId, text) => ({ sessionId, kind: 'user_message', text });
 

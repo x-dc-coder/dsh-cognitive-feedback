@@ -1,14 +1,14 @@
 /**
- * Cognitive Controller — the thin orchestrator.
+ * Cognitive Controller -- the thin orchestrator.
  *
  * Holds one StateEngine per session, applies the policy, records events, and
  * exposes the section text for the prompt builder. Contains no
- * provider-specific DSH API details (ARCHITECTURE.md §2).
+ * provider-specific DSH API details.
  *
  * ## Timing contract (critical for injection)
  *
- * DSH assembles the system prompt for a step **after** the step's input is
- * spliced into the agent inbox, but the harness logs \`system/message\` before
+ * DSH assembles the system prompt for a step after the step's input is spliced
+ * into the agent inbox, but the harness logs \`system/message\` before
  * \`user/message\`. A signal handled only when \`user/message\` arrives would
  * therefore miss the assembly it was meant to influence.
  *
@@ -17,64 +17,86 @@
  * event persistence is deferred, so the section renderer always observes the
  * post-decision state during the same assembly.
  *
- * Fail-open contract: every operation that can throw is caught by the adapter
- * or degrades internally, so a cognitive-feature failure can never turn into a
- * coding failure.
+ * Fail-open: \`handle\` and \`completeTeachingBack\` degrade to a warning rather
+ * than rejecting, on top of the per-operation guards below.
  *
- * @module dsh-cognitive-feedback/controller
+ * @module dsh-cognitive-feedback/cognitive/controller
  */
-import { StateEngine } from './state.js';
-import { DEFAULT_CONFIG, decide, activeIntervention } from './policy.js';
-import { createSectionRenderer } from './prompt.js';
-import { makeEvent, countRecentInterventions } from './events.js';
+import { StateEngine, type CognitiveState, type TeachingBackResult } from './state.js';
+import { DEFAULT_CONFIG, decide, activeIntervention, actionLevel, type ActiveIntervention, type CognitiveConfig, type PolicyAction } from './policy.js';
+import type { CognitiveSignal } from './signal.js';
+import { createSectionRenderer, type SectionRenderer } from '../prompt/renderer.js';
+import { makeEvent } from '../events/factory.js';
+import { countRecentInterventions } from '../events/queries.js';
+import type { CognitiveEventType, PreparedEvent } from '../events/types.js';
+import type { CognitiveEventSink } from '../storage/sink.js';
 
 /** Task types whose completion warrants a teaching-back check. */
-const HIGH_VALUE_TASKS = new Set(['architecture', 'research', 'debugging']);
+const HIGH_VALUE_TASKS: ReadonlySet<string> = new Set(['architecture', 'research', 'debugging']);
 
 /**
  * Deterministic stand-in for a teaching-back evaluator.
  *
- * V0.1 deliberately does NOT judge whether an explanation is correct — that
+ * V0.1 deliberately does NOT judge whether an explanation is correct -- that
  * needs semantic understanding it does not have, and guessing would put a fake
  * signal in the log. It records only what it can observe: whether an answer was
- * given (`unassessed`) or not (`skipped`).
- *
- * @param {string} [text]
- * @returns {'unassessed'|'skipped'}
+ * given (\`unassessed\`) or not (\`skipped\`).
  */
-export function assessTeachingBack(text) {
+export function assessTeachingBack(text: string | undefined): 'unassessed' | 'skipped' {
   const value = String(text ?? '').trim();
   if (value.length < 25) return 'skipped';
   if (/^(skip|no idea|idk|n\/?a|pass|dunno)\b/i.test(value)) return 'skipped';
   return 'unassessed';
 }
 
+/** Result of a synchronous ingest step. */
+export interface IngestResult {
+  readonly action: PolicyAction;
+  readonly events: readonly PreparedEvent[];
+}
+
+/** Controller options. */
+export interface ControllerOptions {
+  readonly config?: Partial<CognitiveConfig> | undefined;
+  readonly sink: CognitiveEventSink;
+  readonly project?: string | undefined;
+  readonly logger?: ((msg: string, error?: unknown) => void) | undefined;
+  readonly now?: (() => Date) | undefined;
+}
+
+interface SessionEntry {
+  readonly engine: StateEngine;
+  readonly renderer: SectionRenderer;
+}
+
 export class CognitiveController {
-  /**
-   * @param {{ config?: Partial<typeof DEFAULT_CONFIG>, sink: import('./storage/sink.js').CognitiveEventSink, project?: string, logger?: (msg: string, error?: unknown) => void, now?: () => Date }} options
-   */
-  constructor(options) {
+  readonly config: CognitiveConfig;
+  private readonly sink: CognitiveEventSink;
+  private readonly project: string | undefined;
+  private readonly logger: (msg: string, error?: unknown) => void;
+  private readonly now: () => Date;
+  readonly sessions = new Map<string, SessionEntry>();
+  strongUsed = 0;
+  lightUsed = 0;
+  started = false;
+  warnings = 0;
+
+  constructor(options: ControllerOptions) {
     this.config = { ...DEFAULT_CONFIG, ...(options.config ?? {}) };
     this.sink = options.sink;
     this.project = options.project;
     this.logger = options.logger ?? (() => {});
     this.now = options.now ?? (() => new Date());
-    /** @type {Map<string, { engine: StateEngine, renderer: ReturnType<typeof createSectionRenderer> }>} */
-    this.sessions = new Map();
-    this.strongUsed = 0;
-    this.lightUsed = 0;
-    this.started = false;
-    this.warnings = 0;
   }
 
   /** Load the persisted budget window. Never throws. */
-  async start() {
+  async start(): Promise<void> {
     try {
       const events = await this.sink.readAll();
       const now = this.now().getTime();
       this.strongUsed = countRecentInterventions(events, { now, strongOnly: true });
       // ingest() charges a strong intervention ONLY to strongUsed, so the light
-      // counter must exclude them too — otherwise a restart silently inflates
+      // counter must exclude them too -- otherwise a restart silently inflates
       // lightUsed and suppresses challenges/teaching-backs.
       const total = countRecentInterventions(events, { now, strongOnly: false });
       this.lightUsed = Math.max(0, total - this.strongUsed);
@@ -84,8 +106,7 @@ export class CognitiveController {
     this.started = true;
   }
 
-  /** @param {string} msg @param {unknown} [error] */
-  warn(msg, error) {
+  warn(msg: string, error?: unknown): void {
     this.warnings += 1;
     try {
       this.logger(msg, error);
@@ -94,8 +115,8 @@ export class CognitiveController {
     }
   }
 
-  /** @param {string} sessionId */
-  session(sessionId) {
+  /** The per-session state entry, created on first use. */
+  session(sessionId: string): SessionEntry {
     const key = String(sessionId ?? 'unknown');
     let entry = this.sessions.get(key);
     if (!entry) {
@@ -111,15 +132,11 @@ export class CognitiveController {
   /**
    * Apply one signal **synchronously**: update state, run the policy, and
    * mutate state to reflect the decision. Returns the action plus the events
-   * that the caller should persist.
-   *
-   * @param {string} sessionId
-   * @param {import('./types.js').CognitiveSignal} signal
-   * @returns {{ action: import('./types.js').PolicyAction, events: Array<{ type: import('./types.js').CognitiveEventType, payload: Record<string, unknown> }> }}
+   * the caller should persist.
    */
-  ingest(sessionId, signal) {
+  ingest(sessionId: string, signal: CognitiveSignal): IngestResult {
     // A disabled plugin is fully inert: no state, no policy, no events. This
-    // makes `enabled: false` a true control arm in live comparisons.
+    // makes enabled: false a true control arm in live comparisons.
     if (!this.config.enabled) return { action: { type: 'none' }, events: [] };
 
     const { engine } = this.session(sessionId);
@@ -133,8 +150,7 @@ export class CognitiveController {
 
     engine.update(signal);
     const state = engine.snapshot();
-    /** @type {Array<{ type: import('./types.js').CognitiveEventType, payload: Record<string, unknown> }>} */
-    const events = [];
+    const events: PreparedEvent[] = [];
 
     if (signal.kind === 'session_started') {
       events.push({ type: 'session.started', payload: { project: this.project ?? null } });
@@ -148,11 +164,9 @@ export class CognitiveController {
       return { action: { type: 'none' }, events };
     }
 
-    // A user reply while a teaching-back directive is live — on the same topic —
-    // is that directive's answer. Without this branch nothing ever observed the
-    // answer, so `teaching_back.completed` was never emitted in practice.
-    // The directive stays live from the moment it is issued until a user
-    // message arrives, so that message IS the answer by construction — no
+    // A user reply while a teaching-back directive is live is that directive's
+    // answer. The directive stays live from the moment it is issued until a
+    // user message arrives, so that message IS the answer by construction -- no
     // topic comparison, which would always differ because any reply yields a
     // new topic key.
     if (signal.kind === 'user_message' && before.teachingBackPending && before.lastActionType === 'teaching_back') {
@@ -160,7 +174,7 @@ export class CognitiveController {
       const topic = before.completedHighValueTopic ?? null;
       events.push({ type: 'teaching_back.completed', payload: { result, topic } });
       engine.recordTeachingBack(result);
-      if (result === 'skipped' || result === 'incorrect') {
+      if (result === 'skipped') {
         events.push({ type: 'knowledge_gap.detected', payload: { topic, result } });
       }
     }
@@ -169,23 +183,36 @@ export class CognitiveController {
     if (signal.kind === 'user_message' && state.currentHypothesis && before.currentHypothesis !== state.currentHypothesis) {
       events.push({
         type: 'hypothesis.submitted',
-        payload: { text: String(state.currentHypothesis).slice(0, 500), authorship: 'user', taskType: state.taskType ?? null },
+        payload: {
+          text: String(state.currentHypothesis).slice(0, 500),
+          authorship: 'user',
+          taskType: state.taskType ?? null,
+        },
       });
       events.push({ type: 'decision.recorded', payload: { owner: 'user', topic: state.currentTopic ?? null } });
     }
 
-    // High-value work with a user hypothesis reached an assistant step → the
-    // next assembly renders the teaching-back directive.
-    if (signal.kind === 'assistant_message' && state.currentHypothesis && HIGH_VALUE_TASKS.has(String(state.taskType)) && !state.teachingBackPending && state.lastActionType !== 'teaching_back') {
+    // High-value work with a user hypothesis reached an assistant step -> the
+    // directive goes live NOW and renders from the next assembly on. A live
+    // directive must be recorded and charged here, not later: emitting from
+    // decide() meant a simply-shown intervention could go unlogged and
+    // unbudgeted until the next user message.
+    if (
+      signal.kind === 'assistant_message' &&
+      state.currentHypothesis &&
+      HIGH_VALUE_TASKS.has(String(state.taskType)) &&
+      !state.teachingBackPending &&
+      state.lastActionType !== 'teaching_back'
+    ) {
       engine.markHighValueCompleted(state.currentTopic);
-      // The directive goes live NOW — it renders from the next assembly on. A
-      // live directive must be recorded and charged here, not later: emitting
-      // from decide() meant a simply-shown intervention could go unlogged and
-      // unbudgeted until the next user message. Observed in a real session:
-      // seq=80 rendered "Teaching back" while the event log stayed empty.
       events.push({
         type: 'teaching_back.requested',
-        payload: { level: 1, reason: state.currentTopic ?? null, taskType: state.taskType ?? null, topic: state.currentTopic ?? null },
+        payload: {
+          level: 1,
+          reason: state.currentTopic ?? null,
+          taskType: state.taskType ?? null,
+          topic: state.currentTopic ?? null,
+        },
       });
       this.lightUsed += 1;
       engine.recordAction({ type: 'teaching_back', reason: state.currentTopic ?? 'task' }, state.currentTopic);
@@ -198,13 +225,15 @@ export class CognitiveController {
       budget: { strongUsed: this.strongUsed, lightUsed: this.lightUsed },
     });
 
-    if (action.type !== 'none') {
-      const level = action.type === 'reasoning_gate' ? 3 : action.type === 'teaching_back' ? 1 : action.level;
+    // Only these two are reachable: teaching back is state-driven and is
+    // recorded above, the moment its directive goes live.
+    if (action.type === 'prompt' || action.type === 'reasoning_gate') {
+      const level = actionLevel(action);
       events.push({
-        type: action.type === 'teaching_back' ? 'teaching_back.requested' : 'intervention.triggered',
+        type: 'intervention.triggered',
         payload: {
           level,
-          reason: action.reason ?? (action.type === 'prompt' ? 'debugging' : 'unknown'),
+          reason: action.type === 'reasoning_gate' ? action.reason : 'debugging',
           taskType: state.taskType ?? null,
           topic: state.currentTopic ?? null,
         },
@@ -220,15 +249,13 @@ export class CognitiveController {
     return { action, events };
   }
 
-  /**
-   * Persist prepared events. Failures are warned, never thrown.
-   * @param {string} sessionId
-   * @param {Array<{ type: import('./types.js').CognitiveEventType, payload: Record<string, unknown> }>} events
-   */
-  async persist(sessionId, events) {
+  /** Persist prepared events. Failures are warned, never thrown. */
+  async persist(sessionId: string, events: readonly PreparedEvent[]): Promise<void> {
     for (const event of events) {
       try {
-        await this.sink.append(makeEvent(event.type, event.payload, { sessionId, project: this.project, now: this.now }));
+        await this.sink.append(
+          makeEvent(event.type, event.payload as never, { sessionId, project: this.project, now: this.now }),
+        );
       } catch (error) {
         this.warn(`event persistence failed (${event.type})`, error);
       }
@@ -237,13 +264,10 @@ export class CognitiveController {
 
   /**
    * Ingest + persist in one call. Used by tests and any caller happy to await.
-   * @param {string} sessionId
-   * @param {import('./types.js').CognitiveSignal} signal
-   * @returns {Promise<import('./types.js').PolicyAction>}
+   * Public API: the fail-open promise must hold here too, not only inside the
+   * adapter's listener wrapper.
    */
-  async handle(sessionId, signal) {
-    // Public API: the fail-open promise must hold here too, not only inside the
-    // adapter's listener wrapper.
+  async handle(sessionId: string, signal: CognitiveSignal): Promise<PolicyAction> {
     try {
       const { action, events } = this.ingest(sessionId, signal);
       await this.persist(sessionId, events);
@@ -254,16 +278,10 @@ export class CognitiveController {
     }
   }
 
-  /**
-   * Teaching-back outcome, supplied by the adapter when it can observe one.
-   * @param {string} sessionId
-   * @param {'correct'|'partially_correct'|'incorrect'|'skipped'|'unassessed'} result
-   * @param {string} [topic]
-   */
-  async completeTeachingBack(sessionId, result, topic) {
-    // `enabled: false` must be inert on every public path, not only on ingest.
+  /** Teaching-back outcome, supplied when a host observes one directly. */
+  async completeTeachingBack(sessionId: string, result: TeachingBackResult, topic?: string | undefined): Promise<void> {
+    // enabled: false must be inert on every public path, not only on ingest.
     if (!this.config.enabled) return;
-
     try {
       const { engine } = this.session(sessionId);
       engine.recordTeachingBack(result);
@@ -282,10 +300,8 @@ export class CognitiveController {
   /**
    * The system-prompt section text for one session. Memoized on a stable
    * fingerprint, so repeated assemblies with unchanged state are byte-identical.
-   * @param {string} sessionId
-   * @returns {string}
    */
-  renderSection(sessionId) {
+  renderSection(sessionId: string): string {
     if (!this.config.enabled) return '';
     try {
       const { engine, renderer } = this.session(sessionId);
@@ -296,9 +312,26 @@ export class CognitiveController {
     }
   }
 
-  /** @param {string} sessionId */
-  currentIntervention(sessionId) {
+  /** The intervention currently rendered for one session, if any. */
+  currentIntervention(sessionId: string): ActiveIntervention | null {
     if (!this.config.enabled) return null;
     return activeIntervention(this.session(sessionId).engine.snapshot());
   }
+
+  /** Raw state snapshot for one session (tests and diagnostics). */
+  stateOf(sessionId: string): CognitiveState {
+    return this.session(sessionId).engine.snapshot();
+  }
+
+  /** Every event type this controller can emit. */
+  static readonly eventTypes: readonly CognitiveEventType[] = [
+    'session.started',
+    'session.ended',
+    'intervention.triggered',
+    'hypothesis.submitted',
+    'decision.recorded',
+    'teaching_back.requested',
+    'teaching_back.completed',
+    'knowledge_gap.detected',
+  ];
 }

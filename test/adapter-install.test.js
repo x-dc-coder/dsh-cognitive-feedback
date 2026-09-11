@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installAdapter } from '../lib/dsh-adapter.js';
+import { installAdapter } from '../dist/dsh-adapter.js';
 
 /**
  * The DSH integration boundary is where both real defects of this project

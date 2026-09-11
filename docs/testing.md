@@ -5,6 +5,7 @@ Two layers, both required. Unit tests prove the cognitive logic; live tests prov
 ## 1. Unit tests (no DSH)
 
 ```bash
+npm run build          # tests run against dist/
 node --test test/*.test.js
 ```
 
@@ -307,7 +308,7 @@ time; nothing else depends on it.
 # ~/.dsh/profiles/<profile>/cordis.patch.yml
 - insert:
     - id: cognitive-feedback
-      name: /home/dc/projects/dsh-cognitive-feedback/lib/index.js
+      name: /home/dc/projects/dsh-cognitive-feedback/dist/index.js
       config:
         eventsPath: /tmp/cognitive-feedback/events.jsonl
 ```

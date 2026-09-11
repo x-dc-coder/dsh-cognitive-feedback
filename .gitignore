@@ -10,6 +10,9 @@ coverage/
 .vscode/
 .idea/
 
+# Generated DSH type mapping (machine-specific; run `npm run resolve:dsh-types`)
+tsconfig.dsh.json
+
 # Local cognitive event data
 .dsh-cognitive-feedback/
 *.cognitive.jsonl

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countRecentInterventions, makeEvent } from '../lib/events.js';
+import { makeEvent } from '../dist/events/factory.js';
+import { countRecentInterventions } from '../dist/events/queries.js';
 
 /** Build an intervention event at an exact time. */
 const interventionAt = (iso, level) => ({

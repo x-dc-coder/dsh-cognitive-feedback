@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapSessionEvent, resolveEventsPath } from '../lib/dsh-adapter.js';
+import { mapSessionEvent, resolveEventsPath } from '../dist/dsh-adapter.js';
 
 test('a real human prompt maps to a user_message signal', () => {
   const signal = mapSessionEvent('s1', {
