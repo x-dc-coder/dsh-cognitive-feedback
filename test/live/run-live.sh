@@ -11,6 +11,10 @@
 #   treatment — plugin mounted and enabled
 # and compares provider cache metrics read from the flushed Session V3 log.
 #
+# Both arms run on the OFFICIAL model route (deepseek-official/deepseek-flash),
+# pinned by a run-local settings file so the test never depends on a custom
+# provider configured in the operator global settings.
+#
 # Usage: bash test/live/run-live.sh ["<task prompt>"]
 set -uo pipefail
 
@@ -18,6 +22,17 @@ REPO="/home/dc/projects/dsh-cognitive-feedback"
 TEMPLATE="${REPO}/test/live/cognitive.patch.template.yml"
 PROMPT="${1:-Refactor the storage layer so we can support three backends. Reply with exactly one short sentence and do not use any tools.}"
 OUT_ROOT="${COG_LIVE_OUT:-/tmp/cog-live}"
+
+# --- model route -----------------------------------------------------------
+# The live test must NOT depend on the operator global model pin. A profile
+# resolves $DSH_HOME/settings.yaml at runtime, and that file may name a custom
+# provider that only another profile has installed -- which fails the whole run
+# with NO_ADAPTER before the model is ever called. Every run therefore pins the
+# OFFICIAL route through a run-local settings file:
+#   deepseek-official/deepseek-flash
+# Override deliberately with COG_LIVE_PROVIDER / COG_LIVE_MODEL.
+LIVE_PROVIDER="${COG_LIVE_PROVIDER:-deepseek-official}"
+LIVE_MODEL="${COG_LIVE_MODEL:-deepseek-flash}"
 
 # --- credentials ---------------------------------------------------------
 # The running web app holds the provider key in its process environment; the
@@ -63,19 +78,15 @@ run_once() {
     cp -R "${REPO}/test/live/fixture/." "${work}/"
   fi
 
-  # COG_LIVE_PATCH points at one extra overlay list applied AFTER the generated
-  # cognitive patch. It exists because the profile's model route may come from
-  # the user's `$DSH_HOME/settings.yaml`, which a headless test cannot assume is
-  # registered in this environment (for example a provider plugin only the web
-  # profile installs). Point it at an overlay that pins `agent-default-model`
-  # and/or the `settings` entry's `path` to a run-local settings file.
+  # COG_LIVE_PATCH appends one additional overlay list, for an operator who needs
+  # something extra on top of the pinned official model route.
   local extra_patch=""
   if [ -n "${COG_LIVE_PATCH:-}" ]; then
     extra_patch="--patch ${COG_LIVE_PATCH}"
   fi
   echo "[live] ${name}[run ${index}/${RUNS_PER_ARM}]: running (enabled=${enabled}) ..."
   ( cd "${work}" && DEEPSEEK_API_KEY="${KEY}" timeout 280 dsh --profile headless \
-      --patch "${dir}/cognitive.patch.yml" ${extra_patch} "${PROMPT}" ) \
+      --patch "${dir}/model.patch.yml" --patch "${dir}/cognitive.patch.yml" ${extra_patch} "${PROMPT}" ) \
       > "${dir}/stdout-${index}.txt" 2> "${dir}/stderr-${index}.txt"
   echo "[live] ${name}[run ${index}]: exit=$?"
 
@@ -98,6 +109,25 @@ run_case() {
   rm -rf "${dir}"; mkdir -p "${dir}"
   sed -e "s#__ENABLED__#${enabled}#" -e "s#__EVENTS__#${dir}/events.jsonl#" "${TEMPLATE}" > "${dir}/cognitive.patch.yml"
 
+  # Run-local settings plus a model overlay. Pinning the OFFICIAL route here is
+  # what makes the live test reproducible on any machine: it cannot inherit a
+  # custom provider from the operator settings file, and it needs no custom
+  # model to run.
+  cat > "${dir}/settings-live.yml" <<EOF
+agent-default-model:
+  provider: ${LIVE_PROVIDER}
+  model: ${LIVE_MODEL}
+EOF
+  cat > "${dir}/model.patch.yml" <<EOF
+- id: agent-default-model
+  config:
+    provider: ${LIVE_PROVIDER}
+    model: ${LIVE_MODEL}
+- id: settings
+  config:
+    path: ${dir}/settings-live.yml
+EOF
+
   local i
   for i in $(seq 1 "${RUNS_PER_ARM}"); do
     run_once "${name}" "${enabled}" "${i}"
@@ -112,6 +142,7 @@ run_case() {
 echo "[live] repo=${REPO}"
 echo "[live] out=${OUT_ROOT}"
 echo "[live] runs per arm=${COG_LIVE_RUNS:-1}"
+echo "[live] model=${LIVE_PROVIDER}/${LIVE_MODEL} (official default; override with COG_LIVE_PROVIDER/COG_LIVE_MODEL)"
 # Arm order is a real confound: the provider cache is content-addressed and
 # shared, so whichever arm runs first can warm the prefix the second one hits.
 # COG_LIVE_REVERSE=1 counterbalances that.

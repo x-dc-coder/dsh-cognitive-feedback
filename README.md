@@ -156,7 +156,7 @@ The vertical slice works end to end: observe a signal → classify the task → 
 - `src/**/*.ts` — TypeScript source; `dist/` is the built plugin (JS + `.d.ts`)
 - `npm test` — builds, then **133/133 unit tests pass** (no DSH required), including the DSH adapter boundary via a fake Cordis context
 - `npm run typecheck` — includes type-level regressions (`@ts-expect-error` assertions in `test/types/`)
-- `npm run test:live` — real headless sessions, control vs treatment
+- `npm run test:live` — real headless sessions, control vs treatment, pinned to the official model route
 
 **Beyond V0.1** (schema stays v1; every addition is optional/additive):
 

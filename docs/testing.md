@@ -61,7 +61,11 @@ the runtime must execute.**
 bash test/live/run-live.sh "<task prompt>"
 ```
 
-The harness boots the real `headless` profile twice — `control` (`enabled: false`) and `treatment` (enabled) — with a generated patch overlay, then reads the flushed Session V3 logs.
+The harness boots the real `headless` profile twice — `control` (`enabled: false`) and
+`treatment` (enabled) — with generated patch overlays, then reads the flushed
+Session V3 logs. Every run is pinned to the **official model route**
+(`deepseek-official/deepseek-flash`) through a run-local `settings-live.yml`, so it
+needs no custom provider and cannot inherit one from the operator environment.
 
 ```text
 test/live/cognitive.patch.template.yml   # profile overlay (plugin + isolated event path)
@@ -131,13 +135,17 @@ needed) produced:
 
 | Run | `system/message` | blocks | event log |
 |---|---|---|---|
-| control (`enabled: false`) | 4508 | **0** | **no file created** — inert |
-| treatment, debugging prompt | 4754 | **1** | `intervention.triggered {level: 2, reason: "debugging"}` **plus `episodeId` and `interventionId`** |
-| treatment, implementation prompt | 4732 | **1** | `intervention.triggered {level: 1, reason: "implementation", ownership: "shared", value: "medium"}` and the injected text is the level-1 **Nudge**, not a challenge |
+| `run-live.sh`, control (`enabled: false`) | 4507 | **0** | **no file created** — inert |
+| `run-live.sh`, treatment (architecture prompt) | 4972 | **1** | `intervention.triggered {level: 3, reason: "architecture", ownership: "user", value: "high"}` **plus `episodeId` and `interventionId`** |
+| ad-hoc, control (`enabled: false`) | 4508 | **0** | **no file created** — inert |
+| ad-hoc, debugging prompt | 4754 | **1** | `intervention.triggered {level: 2, reason: "debugging"}` **plus `episodeId` and `interventionId`** |
+| ad-hoc, implementation prompt | 4732 | **1** | `intervention.triggered {level: 1, reason: "implementation", ownership: "shared", value: "medium"}` and the injected text is the level-1 **Nudge**, not a challenge |
 
-The third run is the ownership re-verification for `docs/decision-policy.md`:
-ordinary implementation is `shared` and non-blocking, and the event records the
-ownership and value the decision came from.
+The first two rows are the harness itself (`bash test/live/run-live.sh`, no
+environment overrides) on the official default route, re-run after the decision
+ownership work. The last two are the ad-hoc ownership checks: ordinary
+implementation is `shared` and non-blocking, and the event records the ownership
+and value the decision came from.
 
 `inspect-session.mjs` also reported a **constant tool schema** (58 tools, one
 distinct signature) and a single `system/message` node, and the model's answer
@@ -145,20 +153,21 @@ asked for the user's hypothesis and evidence, i.e. the section reached it. The
 projection then reconstructed the episode (`status: open`, one intervention)
 from that real log.
 
-**Running the harness in this environment.** The headless profile resolves its
-model route from `$DSH_HOME/settings.yaml`; if that pins a provider only another
-profile has installed, the run fails with
-`NO_ADAPTER: no adapter registered for provider "…"` before the model is called.
-`COG_LIVE_PATCH=<overlay.yml>` appends one extra overlay (applied after the
-generated cognitive patch) so a run can pin `agent-default-model` or point the
-`settings` entry at a run-local settings file:
+**The harness runs on the official model by default.** Every run writes a
+run-local `settings-live.yml` and a `model.patch.yml` overlay that pin
+`deepseek-official/deepseek-flash`, so `bash test/live/run-live.sh` needs no
+custom provider and cannot inherit one from the operator environment.
 
-```yaml
-- id: agent-default-model
-  config: { provider: deepseek-official, model: deepseek-flash }
-- id: settings
-  config: { path: /tmp/cog-live/settings.yaml }
-```
+That isolation is deliberate: a headless profile otherwise resolves its model
+route from `$DSH_HOME/settings.yaml`, and if that file pins a provider only
+another profile has installed the run dies with
+`NO_ADAPTER: no adapter registered for provider "…"` before the model is called.
+Two knobs remain for deliberate overrides:
+
+- `COG_LIVE_PROVIDER` / `COG_LIVE_MODEL` change the pinned route (default
+  `deepseek-official` / `deepseek-flash`);
+- `COG_LIVE_PATCH=<overlay.yml>` appends one more overlay after the model and
+  cognitive patches.
 
 ## 4. Prompt-cache acceptance test
 
