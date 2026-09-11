@@ -11,10 +11,16 @@
  */
 import { makeEvent } from '../../src/events/factory.js';
 import { parseCognitiveEvent } from '../../src/events/queries.js';
-import type { CognitiveEvent, CognitiveEventType } from '../../src/events/types.js';
-import { createState } from '../../src/cognitive/state.js';
+import type { CognitiveEvent, CognitiveEventType, PreparedEvent } from '../../src/events/types.js';
+import { createState, type TeachingBackResult } from '../../src/cognitive/state.js';
 import { activeIntervention, decide } from '../../src/cognitive/policy.js';
 import { renderCognitiveSection } from '../../src/prompt/renderer.js';
+import { extractTeachingBackEvidence, type TeachingBackEvidence } from '../../src/cognitive/teaching-back.js';
+import { normalizeTopic, topicKey } from '../../src/cognitive/classify.js';
+import { buildProjection, type CognitiveProjection } from '../../src/projection/index.js';
+import { computeMetrics, type CognitiveMetrics } from '../../src/projection/metrics.js';
+import { reconstructEpisodes, type CognitiveEpisode } from '../../src/projection/episodes.js';
+import { topicLearningStates, type TopicLearningState } from '../../src/projection/learning.js';
 
 // 1. A known event type with the WRONG payload is rejected.
 // @ts-expect-error -- 'session.started' requires { project: string | null }
@@ -93,3 +99,49 @@ void active?.result;
 // 11. The renderer returns a string for a fully typed state.
 const rendered: string = renderCognitiveSection(state);
 void rendered;
+
+// 12. Correlation fields are typed and additive on any event type.
+const correlatedEvent: CognitiveEvent = makeEvent(
+  'session.started',
+  { project: null },
+  { sessionId: 's', episodeId: 'ep_1', interventionId: 'iv_1' },
+);
+const correlatedPrepared: PreparedEvent = {
+  type: 'episode.closed',
+  payload: { outcome: 'completed', reason: 'teaching-back-completed' },
+  episodeId: 'ep_1',
+};
+void correlatedEvent;
+void correlatedPrepared;
+// @ts-expect-error -- an episode correlation id must be a string
+makeEvent('session.started', { project: null }, { sessionId: 's', episodeId: 42 });
+// @ts-expect-error -- 'outcome' only accepts completed | abandoned
+makeEvent('episode.closed', { outcome: 'maybe', reason: 'x' }, { sessionId: 's' });
+// @ts-expect-error -- a gap origin must be one of the known labels
+makeEvent('knowledge_gap.detected', { topic: null, result: 'skipped', origin: 'made-up' }, { sessionId: 's' });
+
+// 13. Teaching-back evidence is a typed, read-only extraction.
+const evidence: TeachingBackEvidence = extractTeachingBackEvidence('because the seam moved', { topic: 'seam' });
+const assessment: 'evidence_extracted' | 'skipped' = evidence.assessment;
+const coarse: TeachingBackResult = evidence.result;
+void assessment;
+void coarse;
+// @ts-expect-error -- evidence never claims correctness
+evidence.result = 'correct';
+// @ts-expect-error -- the evidence shape has no raw answer field
+void evidence.text;
+
+// 14. Projection and metrics return fully typed read models.
+const projection: CognitiveProjection = buildProjection([]);
+const episodes: readonly CognitiveEpisode[] = projection.episodes;
+const metrics: CognitiveMetrics = computeMetrics([]);
+const topics: readonly TopicLearningState[] = topicLearningStates([]);
+void episodes;
+void metrics;
+void topics;
+// @ts-expect-error -- a metric set has no hidden runtime state to read
+void metrics.runtimeState;
+
+// 15. Topic keys normalize to a bounded string, and stay distinct from topicKey().
+const normalized: string = normalizeTopic(topicKey('Refactor the storage layer'));
+void normalized;

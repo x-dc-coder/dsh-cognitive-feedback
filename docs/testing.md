@@ -331,8 +331,28 @@ node tools/cognitive-report.mjs               # whole log
 node tools/cognitive-report.mjs --days 7      # last week
 node tools/cognitive-report.mjs --session <id> --json
 node tools/cognitive-report.mjs --episodes    # episode rows with status
+node tools/cognitive-report.mjs --topics      # knowledge-gap recurrence per topic
+node tools/cognitive-report.mjs --compare 2026-09-01T00:00:00.000Z   # baseline vs feedback
 node tools/cognitive-report.mjs --rebuild     # ignore + rewrite the projection cache
 ```
+
+### Reading the metrics
+
+The report groups numbers as **exposure** (how often the plugin interrupted),
+**response** (did the user answer), **outcome** (where episodes ended up) and
+**utilization** (coverage). They are computed only from events on disk — never
+from hidden runtime state — and a rate with no denominator is `null`, not zero.
+
+`--compare <ISO>` splits the log into a baseline period and a feedback period and
+prints the deltas **with the caveat attached**:
+
+> Descriptive only: a change between periods is not evidence that the plugin
+> caused it. Sample sizes are small, the baseline is not controlled, and other
+> work moves at the same time.
+
+Do not optimize for intervention count. The objective is better reasoning with
+minimal interruption, so high exposure with low response is a regression. Read
+these numbers next to the raw log, never instead of it.
 
 The tool reads the log through the real `JsonlSink` reader, projects it in one
 pass (`src/projection/`), and caches the derived view at

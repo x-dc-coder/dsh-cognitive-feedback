@@ -17,6 +17,8 @@
  *   node tools/cognitive-report.mjs --days 7          # last 7 days only
  *   node tools/cognitive-report.mjs --session <id>    # one session
  *   node tools/cognitive-report.mjs --episodes        # episode rows
+ *   node tools/cognitive-report.mjs --topics          # knowledge-gap recurrence
+ *   node tools/cognitive-report.mjs --compare <ISO>   # baseline vs feedback period
  *   node tools/cognitive-report.mjs --rebuild         # ignore + rewrite the cache
  *   node tools/cognitive-report.mjs --no-cache        # always project from raw
  *   node tools/cognitive-report.mjs --json            # machine-readable
@@ -91,6 +93,9 @@ if (!filtered && !has('--no-cache')) {
 }
 
 const topics = projection.topicLearningStates(events, { now: Date.now() });
+const metrics = projection.computeMetrics(events, { now: Date.now() });
+const splitAt = flag('--compare');
+const comparison = splitAt ? projection.comparePeriods(events, splitAt, { now: Date.now() }) : null;
 
 const byType = (type) => events.filter((e) => e.type === type);
 const short = (id) => String(id ?? '').replace(/^session-/, '').slice(0, 8);
@@ -121,6 +126,8 @@ const reports = {
   sessions: report.sessions,
   interventions: report.interventions,
   topics,
+  metrics,
+  ...(comparison ? { comparison } : {}),
   interventionsByReason: interventions.reduce((acc, e) => {
     const key = (e.payload && e.payload.reason ? e.payload.reason : 'unknown') + ' (level ' + (e.payload && e.payload.level !== undefined ? e.payload.level : '?') + ')';
     acc[key] = (acc[key] ?? 0) + 1;
@@ -164,6 +171,61 @@ if (asJson) {
   console.log('  teaching back completed   ' + f.teachingBackCompleted);
   console.log('  knowledge gaps detected   ' + f.knowledgeGapsDetected);
   console.log('');
+  const m = reports.metrics;
+  const num = (value) => (value === null ? 'n/a' : value);
+  console.log('metrics');
+  console.log('  exposure');
+  console.log(
+    '    interventions issued      ' + m.exposure.interventionsIssued +
+      '  (gates ' + m.exposure.gates + ', challenges ' + m.exposure.challenges + ', teaching back ' + m.exposure.teachingBackRequests + ')',
+  );
+  console.log('    episodes opened           ' + m.exposure.episodesOpened);
+  console.log('    interventions / session   ' + m.exposure.interventionsPerSession);
+  if (m.exposure.uncorrelatedIssues > 0) {
+    console.log('    uncorrelated issues       ' + m.exposure.uncorrelatedIssues + '  (written before correlation; excluded from response rates)');
+  }
+  console.log('  response');
+  console.log('    hypotheses submitted      ' + m.response.hypothesesSubmitted);
+  console.log(
+    '    gates answered            ' + m.response.gatesAnswered + '/' + m.response.correlatedGates +
+      '  (' + num(m.response.gateAnsweredRate) + ')',
+  );
+  console.log(
+    '    teaching back completed   ' + m.response.teachingBackCompleted + '/' + m.response.correlatedTeachingBacks +
+      '  (' + num(m.response.teachingBackResponseRate) + ')',
+  );
+  console.log('  outcome');
+  console.log(
+    '    episodes completed        ' + m.outcome.episodesCompleted + '  abandoned ' + m.outcome.episodesAbandoned +
+      '  open ' + m.outcome.episodesOpen + '  (' + num(m.outcome.episodeCompletionRate) + ')',
+  );
+  console.log(
+    '    knowledge gaps            ' + m.outcome.knowledgeGapsDetected +
+      '  recurring topics ' + m.outcome.recurringGapTopics + ' (open ' + m.outcome.openRecurringGapTopics + ')',
+  );
+  console.log('    median decision latency   ' + (m.outcome.medianDecisionLatencyMs === null ? 'n/a' : m.outcome.medianDecisionLatencyMs + 'ms'));
+  console.log('  utilization');
+  console.log(
+    '    sessions with / without   ' + m.utilization.sessionsWithIntervention + ' / ' + m.utilization.interventionFreeSessions,
+  );
+  console.log('');
+  if (comparison) {
+    console.log('period comparison (split at ' + comparison.splitAt + ')');
+    const rows = [
+      ['interventions / session', comparison.baseline.exposure.interventionsPerSession, comparison.feedback.exposure.interventionsPerSession, comparison.delta.interventionsPerSession],
+      ['gate answered rate', comparison.baseline.response.gateAnsweredRate, comparison.feedback.response.gateAnsweredRate, comparison.delta.gateAnsweredRate],
+      ['teaching-back response', comparison.baseline.response.teachingBackResponseRate, comparison.feedback.response.teachingBackResponseRate, comparison.delta.teachingBackResponseRate],
+      ['episode completion', comparison.baseline.outcome.episodeCompletionRate, comparison.feedback.outcome.episodeCompletionRate, comparison.delta.episodeCompletionRate],
+      ['knowledge gaps / session', null, null, comparison.delta.knowledgeGapsPerSession],
+    ];
+    for (const [label, before, after, change] of rows) {
+      console.log(
+        '  ' + label.padEnd(26) + ' baseline ' + String(num(before)).padEnd(7) + ' feedback ' + String(num(after)).padEnd(7) + ' delta ' + num(change),
+      );
+    }
+    console.log('  NOTE: ' + comparison.caveat);
+    console.log('');
+  }
   const episodeSummary = reports.episodes;
   console.log('episodes');
   console.log(

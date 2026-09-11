@@ -149,3 +149,32 @@ This is **reporting-only**. Historical gap data never reaches the live prompt:
 the same request produces the same directive whether the topic is new or its
 fifth occurrence. Fewer gaps is not automatically progress — the caveats in §8
 apply to this signal too.
+
+## 10. Interpreting the longitudinal metrics
+
+Metrics are computed only from persisted events, and are reported in three
+groups plus coverage:
+
+| Group | Examples |
+|---|---|
+| exposure | interventions issued, by reason, per session, episodes opened |
+| response | hypotheses submitted, gate answered rate, teaching-back response rate |
+| outcome | episode completion/abandonment, knowledge gaps by origin, recurring gap topics, median intervention→decision latency |
+| utilization | sessions with/without an intervention |
+
+Reading rules:
+
+1. **Never read one number alone.** An intervention that produces no response is
+   noise; a response rate without an outcome says nothing about reasoning.
+2. **A missing denominator is `null`, not zero.** Zero-inflating a rate hides the
+   fact that nothing was observed. Events written before correlation existed
+   still count as exposure but cannot be joined to a response; they are reported
+   as `uncorrelatedIssues` instead of being dropped.
+3. **Correlation is not causation.** A change between a baseline period and a
+   feedback period is not evidence that the plugin caused it: sample sizes are
+   tiny, the baseline is not controlled, and other work moves at the same time.
+   `comparePeriods()` returns that caution with the numbers, and the report prints
+   it.
+4. **Do not optimize for intervention count.** The objective is better reasoning
+   with minimal interruption, so a high exposure with a low response is a
+   regression, not a success.

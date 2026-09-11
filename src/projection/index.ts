@@ -74,6 +74,19 @@ export {
   type SessionAggregate,
 } from './aggregations.js';
 export {
+  computeMetrics,
+  comparePeriods,
+  rate,
+  type CognitiveMetrics,
+  type ExposureMetrics,
+  type MetricsComparison,
+  type MetricsOptions,
+  type MetricsWindow,
+  type OutcomeMetrics,
+  type ResponseMetrics,
+  type UtilizationMetrics,
+} from './metrics.js';
+export {
   topicLearningStates,
   countRecurringTopics,
   openRecurringTopics,
