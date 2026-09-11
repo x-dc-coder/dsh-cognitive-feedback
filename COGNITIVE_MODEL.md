@@ -1,0 +1,110 @@
+# Cognitive Model
+
+## 1. Why this plugin exists
+
+AI coding agents are extremely good at implementation. That creates a specific risk for learning: the user can remain productive while gradually outsourcing the reasoning that would normally build engineering skill.
+
+The plugin treats this as **cognitive debt**.
+
+> Cognitive debt is important reasoning work completed by an AI agent that the user has not yet demonstrated they understand.
+
+The concept is not a judgment of AI usage. It is a signal for where a small intervention may produce long-term value.
+
+## 2. High-value vs low-value cognitive debt
+
+### High-value
+
+- problem formulation
+- architecture selection
+- algorithm selection
+- root-cause analysis
+- research hypothesis formation
+- experiment design
+- interpretation of unexpected results
+
+### Low-value
+
+- boilerplate
+- repetitive CRUD
+- formatting
+- mechanical migrations
+- generated test fixtures
+- routine documentation formatting
+
+V0.1 focuses on the first group.
+
+## 3. Intervention levels
+
+| Level | Behavior | Example |
+|---|---|---|
+| 0 | Normal | routine implementation |
+| 1 | Nudge | ask the user to name the main assumption |
+| 2 | Challenge | question an unsupported design choice |
+| 3 | Reasoning gate | require a user-authored hypothesis before implementation |
+
+The intervention level should be proportional to uncertainty and cognitive value.
+
+## 4. Decision ownership
+
+The plugin distinguishes three states:
+
+```text
+AI suggestion
+      ↓
+user evaluation
+      ↓
+user decision
+```
+
+The goal is not to prevent AI from proposing designs. The goal is to prevent an AI suggestion from becoming the user's decision without conscious evaluation.
+
+## 5. Research mode
+
+Research tasks use a stricter loop:
+
+```text
+Question
+  ↓
+Hypothesis
+  ↓
+Challenge
+  ↓
+Experiment
+  ↓
+Evidence
+  ↓
+Conclusion
+```
+
+A research hypothesis should be explicitly marked as user-authored, AI-suggested, or jointly refined. V0.1 records only the minimal metadata required for this distinction.
+
+## 6. Heuristic signals
+
+Possible signals include:
+
+- architecture request with no user hypothesis;
+- repeated "just implement it" requests for non-trivial design;
+- debugging task where the user has not stated a suspected cause;
+- user repeatedly accepting a generated solution without explanation;
+- research task lacking a measurable hypothesis;
+- same conceptual gap appearing repeatedly in teaching-back results.
+
+These signals are heuristics, not psychological measurements.
+
+## 7. Anti-annoyance rules
+
+The plugin should never challenge every request.
+
+Rules:
+
+1. routine work passes through;
+2. interventions have a budget;
+3. a recently demonstrated competency reduces intervention frequency;
+4. the user can explicitly request normal mode;
+5. a failed intervention must not break the coding workflow.
+
+## 8. What V0.1 does not attempt to measure
+
+V0.1 does not infer intelligence, personality, learning ability, or hidden reasoning quality. It does not calculate a definitive skill score.
+
+The event log is an instrument for later review, not a psychological profile.
