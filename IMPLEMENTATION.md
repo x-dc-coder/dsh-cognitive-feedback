@@ -104,12 +104,19 @@ src/
 │   ├── types.ts             # versioned contract; payloads as a discriminated union
 │   ├── factory.ts           # event construction
 │   └── queries.ts           # read path + runtime narrowing of untrusted JSON
-└── storage/
-    ├── sink.ts              # CognitiveEventSink interface
-    ├── jsonl-sink.ts        # default append-only store
-    └── memory-sink.ts       # tests / read-only hosts
+├── storage/
+│   ├── sink.ts              # CognitiveEventSink interface
+│   ├── jsonl-sink.ts        # default append-only store
+│   └── memory-sink.ts       # tests / read-only hosts
+└── projection/              # derived, rebuildable read models (never in the prompt)
+    ├── episodes.ts          # deterministic episode reconstruction
+    ├── aggregations.ts      # session + intervention aggregation
+    ├── cache.ts             # digest-keyed rebuildable projection cache
+    ├── disk-cache.ts        # JSON cache beside the log; corrupt/stale is discarded
+    └── index.ts             # buildProjection() + createProjectionCache()
 test/
 ├── *.test.js                # unit + adapter tests against dist/ (no DSH required)
+│                            # correlation / episodes / teaching back / projections
 ├── types/type-regressions.ts# compile-only @ts-expect-error assertions
 └── live/                    # real headless-session acceptance harness
 ```

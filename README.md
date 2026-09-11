@@ -86,10 +86,10 @@ Cognitive Controller
 - `docs/examples.md` — expected runtime behavior examples
 - `docs/development-workflow.md` — recommended human/AI development loop
 - `src/` — TypeScript implementation (the only source; `lib/*.js` no longer exists)
-- `src/projection/` — derived, rebuildable read models over the raw event log (episodes, aggregations, metrics); never consulted by the live prompt
+- `src/projection/` — derived, rebuildable read models over the raw event log (episodes, sessions, interventions); never consulted by the live prompt
 - `dist/` — build output loaded by DSH (generated; not committed)
 - `tools/inspect-session.mjs` — Session V3 log inspector: injection evidence + cache metrics
-- `tools/cognitive-report.mjs` — review the append-only event log: funnel, intervention reasons, teaching-back outcomes, timeline
+- `tools/cognitive-report.mjs` — review the append-only log through the projection layer: funnel, episodes, sessions, interventions, timeline (run `npm run build` first)
 - `test/` — unit tests and the live headless acceptance harness
 
 ## Development

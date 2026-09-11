@@ -182,6 +182,31 @@ Appends versioned `CognitiveEvent` objects to a local sink. The default V0.1 imp
 
 The logger must not sit on the critical coding path in a way that can break the agent. Write failures should be reported and degraded gracefully.
 
+### Projection layer
+
+Reporting needs repeated reads over sessions, episodes, interventions and
+teaching-back outcomes. Scanning the JSONL file per query does not scale, so
+`src/projection/` derives a read model in **one pass**:
+
+```text
+raw JSONL (source of truth, append-only)
+        │  buildProjection() -- pure, rebuildable
+        ▼
+CognitiveProjection { episodes, sessions, interventions }
+        │
+        ├── digest-keyed in-memory cache (stale → rebuild)
+        └── optional JSON disk cache beside the log (corrupt/stale → discard)
+```
+
+Properties that keep the derivation safe:
+
+- **rebuildable**: the projection holds no unique information; deleting it (or
+  the cache file) loses nothing and the next read regenerates it;
+- **fail open**: a projection failure yields the empty projection and a warning,
+  never a broken coding session;
+- **read-only with respect to the prompt**: nothing in this layer is consulted
+  when the cognitive section is rendered (see the prompt/memory boundary).
+
 ## 3. Integration boundary
 
 Keep DSH-specific code behind an adapter boundary:

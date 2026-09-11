@@ -322,13 +322,24 @@ replacing them. Both have been run against this plugin.
 
 The plugin's value is cumulative, so one interaction proves nothing. The
 append-only log at `$DSH_HOME/cognitive-feedback/events.jsonl` is the evidence
-base, and `tools/cognitive-report.mjs` turns it into a funnel:
+base, and `tools/cognitive-report.mjs` turns it into a funnel plus projected
+episode/session/intervention views:
 
 ```bash
+npm run build                                 # the tool reports on the code that runs
 node tools/cognitive-report.mjs               # whole log
 node tools/cognitive-report.mjs --days 7      # last week
 node tools/cognitive-report.mjs --session <id> --json
+node tools/cognitive-report.mjs --episodes    # episode rows with status
+node tools/cognitive-report.mjs --rebuild     # ignore + rewrite the projection cache
 ```
+
+The tool reads the log through the real `JsonlSink` reader, projects it in one
+pass (`src/projection/`), and caches the derived view at
+`events.projection.json` beside the log. The cache is keyed to a log digest and
+versioned, so a **stale or corrupt cache is discarded and regenerated**; deleting
+it by hand is always safe. A windowed report (`--days`, `--session`) never
+overwrites the canonical whole-log cache.
 
 ```text
 funnel

@@ -129,6 +129,26 @@ export {
   type EpisodeSummary,
   type EpisodeTrigger,
 } from './projection/episodes.js';
+export {
+  buildProjection,
+  createProjectionCache,
+  projectionDigest,
+  RebuildableProjection,
+  EMPTY_PROJECTION,
+  cachePathFor,
+  loadProjectionCache,
+  saveProjectionCache,
+  PROJECTION_CACHE_VERSION,
+  aggregateSessions,
+  aggregateInterventions,
+  type CognitiveProjection,
+  type InterventionAggregate,
+  type InterventionKind,
+  type InterventionStatus,
+  type ProjectionCacheFile,
+  type ProjectionCacheStats,
+  type SessionAggregate,
+} from './projection/index.js';
 export { JsonlSink } from './storage/jsonl-sink.js';
 export { MemorySink } from './storage/memory-sink.js';
 export type { CognitiveEventSink } from './storage/sink.js';
