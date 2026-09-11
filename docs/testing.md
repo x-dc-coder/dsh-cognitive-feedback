@@ -181,7 +181,45 @@ Conclusions:
 4. **Exactly one `system/message` node is emitted across all steps.** The section's text stayed byte-stable while the gate was active (the renderer memoizes on the state fingerprint), so DSH never had to log a changed prompt mid-series — the in-history append path was not even needed. The change would occur only when the intervention state itself changes.
 5. The plugin registers **no tools**, so the tool-schema set — the one thing that would invalidate reuse from the first altered token — never changes.
 
-## 5. Manual smoke test in a user profile
+## 5. Live GUI verification — the reasoning gate really pauses
+
+The `ask_user_question` mechanism cannot be exercised in the headless profile (no
+answerer), so the gate was, for a long time, only ever observed as an *injected
+directive* — never as an actual pause. It was verified in a real GUI session
+(dsh 0.1.5-rc.1, `web` profile, `deepseek-official/deepseek-flash`, temporary
+`cordis.patch.yml` insert). Recorded evidence, all from the session log and the
+plugin's event log rather than from observation:
+
+| Step | Evidence |
+|---|---|
+| the request was classified | `intervention.triggered {level: 3, reason: "architecture", topic: "refactor-storage-layer-support-three-backends"}` in `events.jsonl` |
+| the directive reached the model **once** | `system/message` at `seq=8`, 52125 chars, **blocks = 1** |
+| the model complied | `tool/call seq=37 name=run_code`, whose code is `const res = await tools.ask_user_question({ questions: [{ id: "cognitive-gate", …` |
+| the turn is genuinely paused | the session holds **3 `tool/call` but only 2 `tool/result`** — the third is outstanding |
+| the tool schema never changed | `distinct signatures 1 (constant)` |
+
+The injected text was exactly:
+
+```text
+[COGNITIVE FEEDBACK]
+Reasoning gate — an architecture decision is about to be made.
+Before implementing, get the user's own thinking first:
+1. what problem they believe exists;
+2. their proposed design or hypothesis;
+3. why they expect it to work.
+Use the `ask_user_question` tool (question id `cognitive-gate`) so the turn pauses for their answer.
+Then you may challenge, refine, or validate it — but do not implement until they answer.
+[/COGNITIVE FEEDBACK]
+```
+
+So the full chain is verified end to end for the first time: classify → record →
+inject **once** → model pauses on the official tool → user answers.
+
+Still not covered by this run: whether `hypothesis.submitted`
+(`authorship: "user"`) is recorded after the answer, and teaching-back completion
+in a real session.
+
+## 6. Manual smoke test in a user profile
 
 ```yaml
 # ~/.dsh/profiles/<profile>/cordis.patch.yml
