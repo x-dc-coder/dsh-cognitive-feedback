@@ -46,22 +46,28 @@ slug_of() {
   printf '%s' "$1" | sed -e 's#/#-#g' | sed -e 's#^-#--#' -e 's#$#--#'
 }
 
-run_case() {
-  local name="$1" enabled="$2"
+# Number of runs per arm. 1 = measure a cold-ish prefix (the provider's own
+# server-side cache may still be warm from earlier identical runs). 2 = an
+# explicit warm run followed by the measured run.
+RUNS_PER_ARM="${COG_LIVE_RUNS:-1}"
+
+run_once() {
+  local name="$1" enabled="$2" index="$3"
   local dir="${OUT_ROOT}/${name}"
   local work="${dir}/work"
-  rm -rf "${dir}"; mkdir -p "${work}"
+
+  # Reset the workspace so every run starts from byte-identical fixture content;
+  # otherwise an agent edit would silently change the prompt under test.
+  rm -rf "${work}"; mkdir -p "${work}"
   if [ -d "${REPO}/test/live/fixture" ]; then
     cp -R "${REPO}/test/live/fixture/." "${work}/"
   fi
 
-  sed -e "s#__ENABLED__#${enabled}#" -e "s#__EVENTS__#${dir}/events.jsonl#" "${TEMPLATE}" > "${dir}/cognitive.patch.yml"
-
-  echo "[live] ${name}: running (enabled=${enabled}) ..."
+  echo "[live] ${name}[run ${index}/${RUNS_PER_ARM}]: running (enabled=${enabled}) ..."
   ( cd "${work}" && DEEPSEEK_API_KEY="${KEY}" timeout 280 dsh --profile headless \
       --patch "${dir}/cognitive.patch.yml" "${PROMPT}" ) \
-      > "${dir}/stdout.txt" 2> "${dir}/stderr.txt"
-  echo "[live] ${name}: exit=$?"
+      > "${dir}/stdout-${index}.txt" 2> "${dir}/stderr-${index}.txt"
+  echo "[live] ${name}[run ${index}]: exit=$?"
 
   local slug; slug="$(slug_of "${work}")"
   local sdir="${DSH_HOME:-/home/dc/.dsh}/sessions/${slug}"
@@ -69,16 +75,33 @@ run_case() {
   newest="$(ls -1dt "${sdir}"/*/ 2>/dev/null | head -1)"
   newest="${newest%/}"
   if [ -n "${newest}" ]; then
-    echo "${newest}" > "${dir}/session-dir.txt"
-    echo "[live] ${name}: session=${newest}"
+    echo "${newest}" > "${dir}/session-${index}.txt"
+    echo "[live] ${name}[run ${index}]: session=${newest}"
   else
-    echo "[live] ${name}: WARNING no session log under ${sdir}"
+    echo "[live] ${name}[run ${index}]: WARNING no session log under ${sdir}"
   fi
-  echo "${dir}" > "${OUT_ROOT}/.lastdir-${name}"
+}
+
+run_case() {
+  local name="$1" enabled="$2"
+  local dir="${OUT_ROOT}/${name}"
+  rm -rf "${dir}"; mkdir -p "${dir}"
+  sed -e "s#__ENABLED__#${enabled}#" -e "s#__EVENTS__#${dir}/events.jsonl#" "${TEMPLATE}" > "${dir}/cognitive.patch.yml"
+
+  local i
+  for i in $(seq 1 "${RUNS_PER_ARM}"); do
+    run_once "${name}" "${enabled}" "${i}"
+  done
+
+  # The measured run is the LAST one; earlier runs only warm the provider cache.
+  local measured="${dir}/session-${RUNS_PER_ARM}.txt"
+  [ -f "${measured}" ] && cp "${measured}" "${dir}/session-dir.txt"
+  echo "[live] ${name}: measured run = run ${RUNS_PER_ARM} of ${RUNS_PER_ARM}"
 }
 
 echo "[live] repo=${REPO}"
 echo "[live] out=${OUT_ROOT}"
+echo "[live] runs per arm=${COG_LIVE_RUNS:-1}"
 run_case control false
 run_case treatment true
 echo "[live] done"

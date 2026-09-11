@@ -112,7 +112,16 @@ cacheHitRate = cacheReadTokens / (cacheReadTokens + cacheWriteTokens + inputToke
 
 A **multi-step** task is required: a single-step task cannot show prefix reuse. The harness copies a small fixture directory into each work dir and asks the model to read several files, forcing multiple assemblies.
 
-Each arm is run **twice** with an identical prompt so the first run warms the provider cache and the second run measures it; the arms use their own warm run so present-vs-absent sections are compared fairly.
+`COG_LIVE_RUNS` controls runs per arm:
+
+- `1` (default) — one measured run per arm. The provider's own server-side prefix cache may still be warm from an earlier identical run.
+- `2` — an explicit **warm run followed by the measured run**; the workspace is reset to byte-identical fixture content before each run, so an agent edit can never silently change the prompt under test.
+
+```bash
+COG_LIVE_RUNS=2 COG_LIVE_OUT=/tmp/cog-warm bash test/live/run-live.sh "<prompt>"
+```
+
+**Known confound.** The two arms do not necessarily run the same number of steps — the model decides when to stop — and the treatment prompt is longer by exactly the section. A whole-run hit rate therefore mixes a fixed cold-start cost over a different number of steps. Compare the **per-step** rows and the steps-2+ hit rate, not only the whole-run aggregate. The numbers in §4.5 were produced with `COG_LIVE_RUNS=1`.
 
 ### 4.4 Acceptance
 
