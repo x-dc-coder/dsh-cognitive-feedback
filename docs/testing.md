@@ -275,7 +275,50 @@ carries the old behaviour until the next restart.
 Still not covered: an `ask_user_question` pause for a *debugging* gate, and a
 teaching-back grade (V0.1 emits `unassessed`/`skipped` by design).
 
-## 6. Reviewing real usage
+## 6. Harness paradigm audit
+
+Plugin-doctor ships a read-only static audit of the Harness plugin paradigm
+(`plugin_paradigm_audit`, checks P1-P9). Run it against this plugin with:
+
+```bash
+# via the tool, from a DSH session:
+plugin_paradigm_audit { target: /home/dc/projects/dsh-cognitive-feedback, details: true }
+```
+
+Latest result:
+
+```text
+dsh-cognitive-feedback v0.1.0
+- entry: dist/index.js . TS project . has Config schema
+- runtime deps: @deepseek-ai/schemastery
+- P8-runtime-deps [info] one runtime dependency declared
+- counts: critical 0 . warning 0 . info 1
+```
+
+The single `info` is the `@deepseek-ai/schemastery` dependency, which the audit
+itself acknowledges is required when a plugin exports a Config schema: the
+paradigm demands a Standard Schema, so the alternative is a worse option (a
+hand-rolled validator).
+
+The audit independently confirms the fixes made during the TypeScript and
+paradigm work, each of which it would have flagged:
+
+| Audit check | What it would have caught here |
+|---|---|
+| P2 Config must be a Schemastery schema | the plugin previously accepted an unvalidated plain object |
+| P3 lifecycle | the adapter used to keep a private disposer list, duplicating the framework |
+| P4 inject shape | an earlier `inject = { optional: [...] }` made the loader wait on a service literally named "optional" and failed the whole profile boot |
+| P5 event names must exist in the host | an earlier `ctx.on('dispose', ...)` subscribed to an event Cordis never emits |
+| P9 TypeScript project shape | source layout, entry resolution, generated `.d.ts` |
+
+**The audit is static, and says so.** Its own footer names the class of problem it
+cannot judge: *"injection timing, event-handler ordering, and same-name section
+shadowing must be verified in a real session."* Those are precisely the defects
+that live here -- the duplicate section injection (a same-name shadowing bug) and
+the inbox-splice ordering bug -- so this audit complements §2/§3/§5 rather than
+replacing them. Both have been run against this plugin.
+
+## 7. Reviewing real usage
 
 The plugin's value is cumulative, so one interaction proves nothing. The
 append-only log at `$DSH_HOME/cognitive-feedback/events.jsonl` is the evidence
@@ -321,7 +364,7 @@ stored: full transcripts, source files, tool output, or any hidden reasoning.
 The log is plain append-only JSONL — inspect it, grep it, or delete it at any
 time; nothing else depends on it.
 
-## 7. Manual smoke test in a user profile
+## 8. Manual smoke test in a user profile
 
 ```yaml
 # ~/.dsh/profiles/<profile>/cordis.patch.yml
