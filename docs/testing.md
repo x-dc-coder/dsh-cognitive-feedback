@@ -174,7 +174,7 @@ Step 1 is **byte-identical in both arms** (`768 / 15462`), proving that an inact
 
 Conclusions:
 
-1. **Injection is real.** The treatment prompt carries `[COGNITIVE FEEDBACK]` and is 914 characters longer; the control prompt has neither.
+1. **Injection is real.** In the pre-fix runs the treatment prompt carried `[COGNITIVE FEEDBACK]` **twice** and was 914 characters longer; the control prompt has neither. Post-fix it carries the block once (463-character delta, verified below).
 2. **The prefix is reused for every step after the first.** Steps 2+ read 17k–18.7k tokens from the provider cache; the per-step hit rate is **98.25%** with the section present, marginally *better* than the 96.67% control because the run finished one step sooner.
 3. **The whole-run hit-rate gap (76.73% vs 79.57%) is not a cache regression.** It is an artifact of step count: the single cold step-1 miss is amortized over 4 steps in the treatment and 5 in the control. On established steps the treatment is equal or better.
 4. **Exactly one `system/message` node is emitted across all steps.** The section's text stayed byte-stable while the gate was active (the renderer memoizes on the state fingerprint), so DSH never had to log a changed prompt mid-series — the in-history append path was not even needed. The change would occur only when the intervention state itself changes.
