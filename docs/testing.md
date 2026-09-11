@@ -25,6 +25,25 @@ They import the core modules directly, so they run in milliseconds with no DSH i
 | `controller.test.js` (teaching back) | the directive renders, the answer is observed as `unassessed`, pending clears, and a **later** high-value task can still ask |
 | `concurrency.test.js` | two sessions decided and persisted concurrently produce well-formed, non-interleaved JSONL |
 
+### Why the runtime tests are still JavaScript
+
+The source is TypeScript; the behavior tests are not. That is a deliberate
+choice, not an unfinished migration:
+
+- the tests import the **built** \`dist/\` output, so they exercise exactly what
+  DSH loads. Type-checking the source and running the artifact are different
+  questions, and this keeps them separate;
+- Node's test runner executes \`.js\` natively, with no transpile step, no loader
+  configuration and no extra dependency in the test path;
+- type-level behavior is not lost. \`test/types/type-regressions.ts\` is compiled
+  by \`npm run typecheck\` and uses \`@ts-expect-error\` to assert that a wrong event
+  payload, an unknown event type, an out-of-range level, an invalid mode and an
+  invalid task type are all rejected. An assertion there fails the build if the
+  rejection stops happening.
+
+So the split is: **\`.ts\` for anything the compiler must judge, \`.js\` for anything
+the runtime must execute.**
+
 ## 2. Live tests (real DSH session)
 
 ```bash
