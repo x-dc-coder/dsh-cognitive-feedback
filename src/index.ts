@@ -109,6 +109,17 @@ export {
   type PreparedEvent,
   type UnknownCognitiveEvent,
 } from './events/types.js';
+export {
+  reconstructEpisodes,
+  episodeIndex,
+  episodeOfEvent,
+  summarizeEpisodes,
+  type CognitiveEpisode,
+  type EpisodeEventRef,
+  type EpisodeStatus,
+  type EpisodeSummary,
+  type EpisodeTrigger,
+} from './projection/episodes.js';
 export { JsonlSink } from './storage/jsonl-sink.js';
 export { MemorySink } from './storage/memory-sink.js';
 export type { CognitiveEventSink } from './storage/sink.js';
