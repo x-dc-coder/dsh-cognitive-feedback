@@ -76,7 +76,7 @@ const HIGH_CONFIDENCE_PATTERN = /\b(i'?m (?:confident|sure)|definitely|certainly
 const HEDGE_PATTERN = /\b(probably|likely|i (?:think|believe|expect)|should|seems?|appears?)\b/i;
 
 /** A concrete code-like concept, e.g. `CognitiveController` or `refactorStorage`. */
-const CODE_CONCEPT_PATTERN = /[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*|\b[A-Z][a-z]+[A-Z]\w*|\`[^\`]+\`/;
+const CODE_CONCEPT_PATTERN = /[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*|\b[A-Z][a-z]+[A-Z]\w*|`[^`]+`/;
 
 /** The minimum answer length that can be examined at all. */
 const MIN_ANSWER_LENGTH = 25;
