@@ -8,7 +8,7 @@ Two layers, both required. Unit tests prove the cognitive logic; live tests prov
 node --test test/*.test.js
 ```
 
-They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **76 tests across 10 files.**
+They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **78 tests across 10 files.**
 
 | File | Covers |
 |---|---|

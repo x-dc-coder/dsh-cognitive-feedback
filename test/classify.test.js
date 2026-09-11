@@ -27,6 +27,48 @@ test('a plain request defaults to implementation', () => {
   assert.equal(classifyTask('Print the current time.'), 'implementation');
 });
 
+test('evaluation and selection tasks are treated as high-value', () => {
+  // An independent functional review found these slipped through as plain
+  // implementation, even though COGNITIVE_MODEL.md lists selection as
+  // high-value cognitive debt.
+  for (const text of [
+    'Investigate whether Redis or Postgres is better for this workload',
+    'Could you look into the best caching approach?',
+    'Which is better for this workload, Redis or Postgres?',
+    'Compare the two approaches for the storage layer',
+    'What are the trade-offs between the two designs?',
+    'Help me decide whether to use a queue or a log',
+  ]) {
+    const taskType = classifyTask(text);
+    assert.ok(taskType === 'research' || taskType === 'architecture', `${taskType}: ${text}`);
+  }
+});
+
+test('the new selection patterns do not over-trigger on routine work', () => {
+  for (const text of [
+    'Add a --verbose flag to the CLI.',
+    'Fix the typo in README.',
+    'Rename the refactor variable.',
+    'Write tests for the parser.',
+    'Just implement the boilerplate.',
+    'Rename the architecture.md file to architecture-old.md',
+    'Print the current time.',
+    'Format the JSON output.',
+  ]) {
+    // The effective classification is what matters: routine precedence runs in
+    // analyzeMessage, not in the raw classifyTask.
+    assert.equal(analyzeMessage(text).taskType, 'implementation', text);
+  }
+
+  // "Rename the architecture.md file ..." contains a high-value keyword, so the
+  // raw classifier still sees architecture; routine precedence is what must win
+  // end to end. This is the case an independent review checked live.
+  const keywordBait = 'Rename the architecture.md file to architecture-old.md';
+  assert.equal(isRoutine(keywordBait), true);
+  assert.equal(classifyTask(keywordBait), 'architecture');
+  assert.equal(analyzeMessage(keywordBait).taskType, 'implementation');
+});
+
 test('user-authored hypotheses are detected', () => {
   assert.equal(hasHypothesis('I think the race condition is caused by two workers.'), true);
   assert.equal(hasHypothesis('My hypothesis is that the cache is stale.'), true);

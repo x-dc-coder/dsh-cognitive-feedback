@@ -154,6 +154,36 @@ Prefix reuse holds: steps 2+ read the entire prefix from the provider cache. The
 
 ---
 
+### 3.1 Second functionality pass (same model, delivered later)
+
+A second live pass through the temporary patch overlay ran five real sessions and
+found a **major under-trigger**: ordinary technology-selection questions were
+classified as plain implementation, so the highest-value category the plugin
+exists for produced no intervention.
+
+```text
+"Investigate whether Redis or Postgres is better for this workload" -> implementation -> none
+"Could you look into the best caching approach?"                   -> implementation -> none
+```
+
+`COGNITIVE_MODEL.md` lists *architecture selection* and *algorithm selection* as
+high-value cognitive debt, but the patterns only matched explicit research
+vocabulary. Fixed with conservative evaluation/selection patterns
+(`investigate … whether`, `look into … best`, `which … better`,
+`compare … approach`, `trade-offs`, `decide whether`), each requiring a
+choice context. Verified: 6 selection prompts now trigger, and 8 routine prompts
+still stay silent — including `"Rename the architecture.md file to
+architecture-old.md"`, where routine precedence must beat the keyword.
+
+It also confirmed live: real injection for architecture and debugging tasks, the
+disabled arm truly inert, schema-v1 JSONL, a constant 50-tool schema, and the
+intervention present at the first assembled step.
+
+**Its cache numbers (0.047 / 0.062 / 0) are not comparable to §4.5.** Those runs
+were single-step, so there was no in-session prefix to reuse — the docs already
+state that a single-step task cannot demonstrate prefix reuse. The two figures
+measure different things.
+
 ## 4. Test review — delivered on the third attempt
 
 The two fresh-context delegations failed (a crash, then a no-op reply). A third attempt using a forked context delivered a full review, and its findings were the most actionable of the three aspects. Summary of what it found, each item verified by the lead before acting:
