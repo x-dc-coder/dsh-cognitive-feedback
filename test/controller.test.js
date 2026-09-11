@@ -66,6 +66,15 @@ test('a completed high-value task yields teaching back and a recorded outcome', 
   assert.ok(types.includes('knowledge_gap.detected'));
 });
 
+test('a disabled plugin is fully inert (no events, no section)', async () => {
+  const { controller, sink } = await makeController({ enabled: false });
+  await controller.handle('s1', { sessionId: 's1', kind: 'session_started' });
+  const action = await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
+  assert.deepEqual(action, { type: 'none' });
+  assert.deepEqual(await sink.readAll(), [], 'a disabled plugin must not write any event');
+  assert.equal(controller.renderSection('s1'), '');
+});
+
 test('a sink failure never breaks the caller (fail open)', async () => {
   const { controller, sink, warnings } = await makeController();
   sink.failWith = 'disk full';

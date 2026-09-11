@@ -20,6 +20,17 @@ test('a reasoning gate renders a bounded, delimited directive', () => {
   assert.ok(text.length <= 1200, `section too long: ${text.length}`);
 });
 
+test('the gate label matches the task type (regression)', () => {
+  // A real injected prompt rendered an architecture gate as "a research
+  // decision" because the renderer compared a topic slug against a task type.
+  const architecture = stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' });
+  assert.match(renderCognitiveSection(architecture), /an architecture decision/);
+  assert.doesNotMatch(renderCognitiveSection(architecture), /research decision/);
+
+  const research = stateWith({ taskType: 'research', currentTopic: 'benchmark', pendingGate: true, lastGateTopic: 'benchmark' });
+  assert.match(renderCognitiveSection(research), /a research decision/);
+});
+
 test('a challenge renders for high-uncertainty debugging', () => {
   const state = stateWith({ taskType: 'debugging', currentTopic: 'duplicate-jobs', lastActionType: 'prompt', lastActionTopic: 'duplicate-jobs' });
   assert.match(renderCognitiveSection(state), /Challenge/);
@@ -49,7 +60,8 @@ test('the fingerprint changes only when the active intervention changes', () => 
   const base = stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' });
   const noise = { ...base, recentDecisionOutsourcing: 99, stateVersion: 42 };
   assert.equal(fingerprint(base), fingerprint(noise), 'unrelated state must not change the fingerprint');
-  const changed = { ...base, lastGateTopic: 'other-topic' };
+  // The fingerprint tracks the intervention's subject (currentTopic).
+  const changed = { ...base, currentTopic: 'other-topic' };
   assert.notEqual(fingerprint(base), fingerprint(changed));
 });
 

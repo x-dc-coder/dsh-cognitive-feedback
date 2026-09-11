@@ -44,7 +44,8 @@ test('intervention budget exhaustion suppresses light interventions', () => {
 test('a pending gate is not re-issued', () => {
   const state = stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage', pendingGate: true, lastGateTopic: 'refactor-storage' });
   assert.deepEqual(decide(state), { type: 'none' });
-  assert.deepEqual(activeIntervention(state), { kind: 'gate', reason: 'refactor-storage' });
+  // `reason` is the task type (drives the rendered label); the topic is separate.
+  assert.deepEqual(activeIntervention(state), { kind: 'gate', reason: 'architecture', topic: 'refactor-storage' });
 });
 
 test('disabled config yields no intervention', () => {
