@@ -56,12 +56,12 @@ test('a completed high-value task yields teaching back and a recorded outcome', 
   await controller.handle('s1', msg('I think the storage interface leaks backend details.'));
   await controller.handle('s1', { sessionId: 's1', kind: 'assistant_message', text: 'Implemented.' });
 
-  const action = await controller.handle('s1', msg('Thanks, that looks good.'));
-  assert.equal(action.type, 'teaching_back');
+  // The directive is live and recorded as soon as the high-value work completes.
+  assert.match(controller.renderSection('s1'), /Teaching back/);
+  assert.ok((await sink.readAll()).some((e) => e.type === 'teaching_back.requested'));
 
   await controller.completeTeachingBack('s1', 'partially_correct', 'refactor');
   const types = (await sink.readAll()).map((e) => e.type);
-  assert.ok(types.includes('teaching_back.requested'));
   assert.ok(types.includes('teaching_back.completed'));
   assert.ok(types.includes('knowledge_gap.detected'));
 });
@@ -72,13 +72,14 @@ test('teaching back renders, is answered, and can fire again later', async () =>
   await controller.handle('s1', msg('I think the storage interface leaks backend details.'));
   await controller.handle('s1', { sessionId: 's1', kind: 'assistant_message', text: 'Implemented.' });
 
-  const issued = await controller.handle('s1', msg('Thanks, that looks good.'));
-  assert.equal(issued.type, 'teaching_back');
-  // Regression: recordAction used to clear teachingBackPending, so the section
-  // stopped rendering in the same assembly and the model NEVER saw the
-  // directive — teaching back was a silent no-op.
+  // The directive goes live the moment the high-value work completes — it does
+  // not wait for another user message.
   assert.match(controller.renderSection('s1'), /Teaching back/);
+  const requested = (await sink.readAll()).find((e) => e.type === 'teaching_back.requested');
+  assert.ok(requested, 'a live directive must be recorded immediately');
+  assert.equal(controller.lightUsed, 1, 'and it must consume budget');
 
+  // Any user message while it is live is the answer.
   await controller.handle('s1', msg('It works because one interface now hides the three adapters behind a single contract.'));
   const events = await sink.readAll();
   const completed = events.find((e) => e.type === 'teaching_back.completed');
@@ -91,8 +92,12 @@ test('teaching back renders, is answered, and can fire again later', async () =>
   await controller.handle('s1', msg('Now benchmark a new adaptive partitioning strategy for the VRP experiment.'));
   await controller.handle('s1', msg('I expect adaptive partitioning to cut latency because static buckets skew.'));
   await controller.handle('s1', { sessionId: 's1', kind: 'assistant_message', text: 'Done.' });
-  const again = await controller.handle('s1', msg('ok thanks'));
-  assert.equal(again.type, 'teaching_back', 'a later high-value task must still be able to ask');
+  assert.match(controller.renderSection('s1'), /Teaching back/, 'a later high-value task must still be able to ask');
+  assert.equal(
+    (await sink.readAll()).filter((e) => e.type === 'teaching_back.requested').length,
+    2,
+    'the second high-value task must also be recorded',
+  );
 });
 
 test('handle degrades instead of rejecting on a hostile signal', async () => {

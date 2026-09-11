@@ -212,12 +212,48 @@ Then you may challenge, refine, or validate it — but do not implement until th
 [/COGNITIVE FEEDBACK]
 ```
 
-So the full chain is verified end to end for the first time: classify → record →
-inject **once** → model pauses on the official tool → user answers.
+So the full chain is verified end to end: classify → record → inject **once** →
+model pauses on the official tool → user answers.
 
-Still not covered by this run: whether `hypothesis.submitted`
-(`authorship: "user"`) is recorded after the answer, and teaching-back completion
-in a real session.
+### The complete loop, after the answer
+
+Continuing the same session once the user answered produced the whole loop, again
+from the logs:
+
+```text
+07:48:22  intervention.triggered   {level: 3, reason: "architecture"}
+08:02:06  hypothesis.submitted     {authorship: "user", taskType: "architecture"}
+08:02:06  decision.recorded        {owner: "user"}
+```
+
+and, in the session log, four `system/message` nodes with **no rewrite of the
+leading node** (`0` replacement events) — the `in-history` append path, which is
+exactly why prefix reuse survives injection:
+
+| seq | turn/step | blocks | active directive |
+|---|---|---|---|
+| 8 | 1/1 | 1 | Reasoning gate |
+| 43 | 1/4 | 1 | Reasoning gate (still unanswered) |
+| 65 | 2/1 | **0** | none — the gate cleared on the answer |
+| 80 | 2/2 | 1 | **Teaching back** — went live once the work was implemented |
+
+**A defect this run exposed.** At seq=80 the teaching-back directive was live in
+the prompt while `teaching_back.requested` had **not** been recorded and the
+budget had not been charged: the event was only emitted from `decide()`, which
+needs a further user message. A simply-shown intervention could therefore go
+unlogged. Teaching back is now state-driven — the controller records and charges
+it the moment the directive goes live. Verified trail:
+
+```text
+intervention.triggered -> hypothesis.submitted -> decision.recorded
+  -> teaching_back.requested -> teaching_back.completed
+```
+
+Note: the running `web` process was started **before** this fix, so it still
+carries the old behaviour until the next restart.
+
+Still not covered: an `ask_user_question` pause for a *debugging* gate, and a
+teaching-back grade (V0.1 emits `unassessed`/`skipped` by design).
 
 ## 6. Manual smoke test in a user profile
 

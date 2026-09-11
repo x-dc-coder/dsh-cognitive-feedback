@@ -77,7 +77,7 @@ test('disabled config yields no intervention', () => {
   assert.deepEqual(decide(state, { config: { ...DEFAULT_CONFIG, enabled: false } }), { type: 'none' });
 });
 
-test('a high-value task with a hypothesis yields teaching back', () => {
+test('teaching back is state-driven, not a policy action', () => {
   const state = stateWith({
     taskType: 'architecture',
     currentTopic: 'refactor-storage',
@@ -85,5 +85,13 @@ test('a high-value task with a hypothesis yields teaching back', () => {
     teachingBackPending: true,
     completedHighValueTopic: 'refactor-storage',
   });
-  assert.deepEqual(decide(state), { type: 'teaching_back', reason: 'refactor-storage' });
+  // decide() no longer issues it. The controller renders, records and charges
+  // the directive the moment it goes live, which keeps the log honest even if
+  // no further user message ever arrives.
+  assert.deepEqual(decide(state), { type: 'none' });
+  assert.deepEqual(activeIntervention(state), {
+    kind: 'teaching_back',
+    reason: 'refactor-storage',
+    topic: 'refactor-storage',
+  });
 });
