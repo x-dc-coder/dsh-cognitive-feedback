@@ -8,16 +8,23 @@
  * ## Timing contract (critical for injection)
  *
  * DSH assembles the system prompt for a step after the step's input is spliced
- * into the agent inbox, but the harness logs \`system/message\` before
- * \`user/message\`. A signal handled only when \`user/message\` arrives would
+ * into the agent inbox, but the harness logs `system/message` before
+ * `user/message`. A signal handled only when `user/message` arrives would
  * therefore miss the assembly it was meant to influence.
  *
- * The adapter feeds signals from \`agent/inbox/spliced\` (which lands first), and
- * \`ingest()\` performs **all** state and policy mutation synchronously. Only
+ * The adapter feeds signals from `agent/inbox/spliced` (which lands first), and
+ * `ingest()` performs **all** state and policy mutation synchronously. Only
  * event persistence is deferred, so the section renderer always observes the
  * post-decision state during the same assembly.
  *
- * Fail-open: \`handle\` and \`completeTeachingBack\` degrade to a warning rather
+ * ## Correlation
+ *
+ * Every event that belongs to a reasoning unit carries `episodeId` and/or
+ * `interventionId`. Both are minted here, at the moment the unit begins, and
+ * travel with the state until the unit is resolved or abandoned -- never
+ * inferred later from topic strings or timestamps. See `EVENT_SCHEMA.md`.
+ *
+ * Fail-open: `handle` and `completeTeachingBack` degrade to a warning rather
  * than rejecting, on top of the per-operation guards below.
  *
  * @module dsh-cognitive-feedback/cognitive/controller
@@ -26,9 +33,9 @@ import { StateEngine, type CognitiveState, type TeachingBackResult } from './sta
 import { DEFAULT_CONFIG, decide, activeIntervention, actionLevel, type ActiveIntervention, type CognitiveConfig, type PolicyAction } from './policy.js';
 import type { CognitiveSignal } from './signal.js';
 import { createSectionRenderer, type SectionRenderer } from '../prompt/renderer.js';
-import { makeEvent } from '../events/factory.js';
+import { makeEvent, newCorrelationId } from '../events/factory.js';
 import { countRecentInterventions } from '../events/queries.js';
-import type { CognitiveEventType, PreparedEvent } from '../events/types.js';
+import type { CognitiveEventType, EventCorrelation, PreparedEvent } from '../events/types.js';
 import type { CognitiveEventSink } from '../storage/sink.js';
 
 /** Task types whose completion warrants a teaching-back check. */
@@ -40,7 +47,7 @@ const HIGH_VALUE_TASKS: ReadonlySet<string> = new Set(['architecture', 'research
  * V0.1 deliberately does NOT judge whether an explanation is correct -- that
  * needs semantic understanding it does not have, and guessing would put a fake
  * signal in the log. It records only what it can observe: whether an answer was
- * given (\`unassessed\`) or not (\`skipped\`).
+ * given (`unassessed`) or not (`skipped`).
  */
 export function assessTeachingBack(text: string | undefined): 'unassessed' | 'skipped' {
   const value = String(text ?? '').trim();
@@ -67,6 +74,14 @@ export interface ControllerOptions {
 interface SessionEntry {
   readonly engine: StateEngine;
   readonly renderer: SectionRenderer;
+}
+
+/** Build a correlation object that omits fields that are not set. */
+function correlation(episodeId: string | undefined, interventionId?: string | undefined): EventCorrelation {
+  return {
+    ...(episodeId ? { episodeId } : {}),
+    ...(interventionId ? { interventionId } : {}),
+  };
 }
 
 export class CognitiveController {
@@ -149,13 +164,38 @@ export class CognitiveController {
     }
 
     engine.update(signal);
-    const state = engine.snapshot();
+    let state = engine.snapshot();
     const events: PreparedEvent[] = [];
+
+    /** The open episode id, opening one on demand. */
+    const ensureEpisode = (): string => {
+      let id = engine.snapshot().currentEpisodeId;
+      if (!id) {
+        id = newCorrelationId('ep');
+        engine.openEpisode(id);
+      }
+      return id;
+    };
 
     if (signal.kind === 'session_started') {
       events.push({ type: 'session.started', payload: { project: this.project ?? null } });
       return { action: { type: 'none' }, events };
     }
+
+    // A state transition dropped the open episode: a topic change abandoned it,
+    // or the session ended with it still open. Recording the terminator here is
+    // what makes "interrupted episode" reconstructable from the log alone.
+    if (before.currentEpisodeId && state.currentEpisodeId !== before.currentEpisodeId) {
+      events.push({
+        type: 'episode.closed',
+        payload: {
+          outcome: 'abandoned',
+          reason: signal.kind === 'session_ended' ? 'session-ended' : 'topic-changed',
+        },
+        ...correlation(before.currentEpisodeId, before.currentInterventionId),
+      });
+    }
+
     if (signal.kind === 'session_ended') {
       events.push({ type: 'session.ended', payload: { interventions: this.strongUsed + this.lightUsed } });
       // Prune the per-session entry: a long-lived host creates one session per
@@ -172,15 +212,31 @@ export class CognitiveController {
     if (signal.kind === 'user_message' && before.teachingBackPending && before.lastActionType === 'teaching_back') {
       const result = assessTeachingBack(signal.text);
       const topic = before.completedHighValueTopic ?? null;
-      events.push({ type: 'teaching_back.completed', payload: { result, topic } });
+      const episodeId = before.currentEpisodeId;
+      const interventionId = before.currentInterventionId;
+      events.push({ type: 'teaching_back.completed', payload: { result, topic }, ...correlation(episodeId, interventionId) });
       engine.recordTeachingBack(result);
       if (result === 'skipped') {
-        events.push({ type: 'knowledge_gap.detected', payload: { topic, result } });
+        events.push({ type: 'knowledge_gap.detected', payload: { topic, result }, ...correlation(episodeId, interventionId) });
       }
+      // The answer terminates the episode: the cycle trigger -> hypothesis ->
+      // implementation -> teaching-back is complete.
+      if (episodeId) {
+        events.push({
+          type: 'episode.closed',
+          payload: { outcome: 'completed', reason: 'teaching-back-completed' },
+          ...correlation(episodeId, interventionId),
+        });
+      }
+      engine.closeEpisode();
+      state = engine.snapshot();
     }
 
-    // A newly authored hypothesis (stated directly or as a gate answer).
+    // A newly authored hypothesis (stated directly or as a gate answer). It
+    // resolves whatever intervention was waiting for it.
     if (signal.kind === 'user_message' && state.currentHypothesis && before.currentHypothesis !== state.currentHypothesis) {
+      const episodeId = ensureEpisode();
+      const resolvedInterventionId = engine.snapshot().currentInterventionId;
       events.push({
         type: 'hypothesis.submitted',
         payload: {
@@ -188,8 +244,15 @@ export class CognitiveController {
           authorship: 'user',
           taskType: state.taskType ?? null,
         },
+        ...correlation(episodeId, resolvedInterventionId),
       });
-      events.push({ type: 'decision.recorded', payload: { owner: 'user', topic: state.currentTopic ?? null } });
+      events.push({
+        type: 'decision.recorded',
+        payload: { owner: 'user', topic: state.currentTopic ?? null },
+        ...correlation(episodeId, resolvedInterventionId),
+      });
+      engine.resolveIntervention();
+      state = engine.snapshot();
     }
 
     // High-value work with a user hypothesis reached an assistant step -> the
@@ -204,6 +267,9 @@ export class CognitiveController {
       !state.teachingBackPending &&
       state.lastActionType !== 'teaching_back'
     ) {
+      const episodeId = ensureEpisode();
+      const interventionId = newCorrelationId('iv');
+      engine.beginIntervention(interventionId);
       engine.markHighValueCompleted(state.currentTopic);
       events.push({
         type: 'teaching_back.requested',
@@ -213,9 +279,11 @@ export class CognitiveController {
           taskType: state.taskType ?? null,
           topic: state.currentTopic ?? null,
         },
+        ...correlation(episodeId, interventionId),
       });
       this.lightUsed += 1;
       engine.recordAction({ type: 'teaching_back', reason: state.currentTopic ?? 'task' }, state.currentTopic);
+      state = engine.snapshot();
     }
 
     if (signal.kind !== 'user_message') return { action: { type: 'none' }, events };
@@ -229,6 +297,9 @@ export class CognitiveController {
     // recorded above, the moment its directive goes live.
     if (action.type === 'prompt' || action.type === 'reasoning_gate') {
       const level = actionLevel(action);
+      const episodeId = ensureEpisode();
+      const interventionId = newCorrelationId('iv');
+      engine.beginIntervention(interventionId);
       events.push({
         type: 'intervention.triggered',
         payload: {
@@ -237,6 +308,7 @@ export class CognitiveController {
           taskType: state.taskType ?? null,
           topic: state.currentTopic ?? null,
         },
+        ...correlation(episodeId, interventionId),
       });
       // Deliberate ordering: the intervention HAS been issued (it is in the
       // prompt for this assembly), so it consumes budget even if the log write
@@ -254,7 +326,13 @@ export class CognitiveController {
     for (const event of events) {
       try {
         await this.sink.append(
-          makeEvent(event.type, event.payload as never, { sessionId, project: this.project, now: this.now }),
+          makeEvent(event.type, event.payload as never, {
+            sessionId,
+            project: this.project,
+            now: this.now,
+            episodeId: event.episodeId,
+            interventionId: event.interventionId,
+          }),
         );
       } catch (error) {
         this.warn(`event persistence failed (${event.type})`, error);
@@ -284,14 +362,31 @@ export class CognitiveController {
     if (!this.config.enabled) return;
     try {
       const { engine } = this.session(sessionId);
+      const before = engine.snapshot();
       engine.recordTeachingBack(result);
-      const resolvedTopic = topic ?? engine.snapshot().completedHighValueTopic ?? null;
-      await this.persist(sessionId, [{ type: 'teaching_back.completed', payload: { result, topic: resolvedTopic } }]);
+      const resolvedTopic = topic ?? before.completedHighValueTopic ?? null;
+      const episodeId = before.currentEpisodeId;
+      const interventionId = before.currentInterventionId;
+      await this.persist(sessionId, [
+        { type: 'teaching_back.completed', payload: { result, topic: resolvedTopic }, ...correlation(episodeId, interventionId) },
+      ]);
       // A gap is a wrong or missing explanation. 'unassessed' is neither: the
       // user did explain, V0.1 just cannot grade it.
       if (result === 'incorrect' || result === 'partially_correct' || result === 'skipped') {
-        await this.persist(sessionId, [{ type: 'knowledge_gap.detected', payload: { topic: resolvedTopic, result } }]);
+        await this.persist(sessionId, [
+          { type: 'knowledge_gap.detected', payload: { topic: resolvedTopic, result }, ...correlation(episodeId, interventionId) },
+        ]);
       }
+      if (episodeId) {
+        await this.persist(sessionId, [
+          {
+            type: 'episode.closed',
+            payload: { outcome: 'completed', reason: 'teaching-back-completed' },
+            ...correlation(episodeId, interventionId),
+          },
+        ]);
+      }
+      engine.closeEpisode();
     } catch (error) {
       this.warn('teaching-back recording failed; continuing', error);
     }
@@ -327,6 +422,7 @@ export class CognitiveController {
   static readonly eventTypes: readonly CognitiveEventType[] = [
     'session.started',
     'session.ended',
+    'episode.closed',
     'intervention.triggered',
     'hypothesis.submitted',
     'decision.recorded',

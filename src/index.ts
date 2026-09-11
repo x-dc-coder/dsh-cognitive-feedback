@@ -87,9 +87,28 @@ export { decide, activeIntervention, actionLevel, DEFAULT_CONFIG, type PolicyAct
 export { renderCognitiveSection, createSectionRenderer, fingerprint, SECTION_NAME, type SectionRenderer, type RendererOptions } from './prompt/renderer.js';
 export { analyzeMessage, classifyTask, hasHypothesis, isRoutine, topicKey, type TaskType, type MessageAnalysis } from './cognitive/classify.js';
 export type { CognitiveSignal, SignalKind } from './cognitive/signal.js';
-export { makeEvent, type EventMeta } from './events/factory.js';
-export { countRecentInterventions, parseCognitiveEvent, isCognitiveEventType, type InterventionWindowOptions } from './events/queries.js';
-export { SCHEMA_VERSION, COGNITIVE_EVENT_TYPES, type CognitiveEvent, type CognitiveEventType, type CognitiveEventPayloadMap, type PreparedEvent, type UnknownCognitiveEvent } from './events/types.js';
+export { makeEvent, newCorrelationId, type EventMeta } from './events/factory.js';
+export {
+  countRecentInterventions,
+  parseCognitiveEvent,
+  isCognitiveEventType,
+  indexByCorrelation,
+  eventsForIntervention,
+  eventsForEpisode,
+  type CorrelationField,
+  type InterventionWindowOptions,
+} from './events/queries.js';
+export {
+  SCHEMA_VERSION,
+  COGNITIVE_EVENT_TYPES,
+  type CognitiveEvent,
+  type CognitiveEventType,
+  type CognitiveEventPayloadMap,
+  type EpisodeOutcome,
+  type EventCorrelation,
+  type PreparedEvent,
+  type UnknownCognitiveEvent,
+} from './events/types.js';
 export { JsonlSink } from './storage/jsonl-sink.js';
 export { MemorySink } from './storage/memory-sink.js';
 export type { CognitiveEventSink } from './storage/sink.js';

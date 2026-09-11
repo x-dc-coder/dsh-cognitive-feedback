@@ -49,6 +49,20 @@ export interface CognitiveState {
   completedHighValueTopic: string | undefined;
   /** Latest user-authored text, kept only in memory for the current turn. */
   lastUserText: string | undefined;
+
+  /**
+   * Correlation. The open reasoning episode, or undefined when no cognitive
+   * cycle is in progress. Never derived from a topic string: an id survives
+   * turns, and ends only when the episode is completed or abandoned.
+   */
+  currentEpisodeId: string | undefined;
+  /**
+   * The live intervention awaiting resolution (a gate waiting for a hypothesis,
+   * or a teaching-back check waiting for an answer). Distinct from the episode:
+   * one episode can issue more than one intervention, and an id here is what
+   * lets a reader join the trigger to the answer.
+   */
+  currentInterventionId: string | undefined;
 }
 
 /** A freshly created state for one session. */
@@ -70,6 +84,8 @@ export function createState(sessionId: string): CognitiveState {
     teachingBackPending: false,
     completedHighValueTopic: undefined,
     lastUserText: undefined,
+    currentEpisodeId: undefined,
+    currentInterventionId: undefined,
   };
 }
 
@@ -100,7 +116,15 @@ export class StateEngine {
       return (this.state = bump(s, { mode: 'normal', pendingGate: false }));
     }
     if (signal.kind === 'session_ended') {
-      return (this.state = bump(s, { mode: 'normal', pendingGate: false, currentHypothesis: undefined }));
+      // A session end abandons whatever episode was still open; the controller
+      // turns the before/after difference into an `episode.closed` event.
+      return (this.state = bump(s, {
+        mode: 'normal',
+        pendingGate: false,
+        currentHypothesis: undefined,
+        currentEpisodeId: undefined,
+        currentInterventionId: undefined,
+      }));
     }
     if (signal.kind !== 'user_message') return this.state;
 
@@ -133,6 +157,17 @@ export class StateEngine {
       // yields a new topic key, so clearing on topic change would kill the
       // teaching-back it was about to ask for. The controller's completion
       // branch consumes it on the user's answer instead.
+      //
+      // The same reasoning applies to the open episode: while a teaching-back
+      // directive is live, the next message IS that episode's answer, so the
+      // topic shift it carries must not be read as abandonment. A topic change
+      // that really abandons an episode clears both correlation fields, and the
+      // controller records `episode.closed` from the before/after difference.
+      const answeringTeachingBack = s.teachingBackPending && s.lastActionType === 'teaching_back';
+      if (!answeringTeachingBack) {
+        patch.currentEpisodeId = undefined;
+        patch.currentInterventionId = undefined;
+      }
       changed = true;
     }
     if (info.taskType !== s.taskType) {
@@ -194,6 +229,39 @@ export class StateEngine {
       patch.lastActionTopic = topic;
     }
     this.state = bump(s, patch);
+    return this.state;
+  }
+
+  /**
+   * Open a reasoning episode. Idempotent for the same id, so a caller can call
+   * it defensively before every event that needs an episode.
+   */
+  openEpisode(episodeId: string): CognitiveState {
+    if (this.state.currentEpisodeId === episodeId) return this.state;
+    this.state = bump(this.state, { currentEpisodeId: episodeId, currentInterventionId: undefined });
+    return this.state;
+  }
+
+  /** Close the open episode, abandoning any live intervention with it. Idempotent. */
+  closeEpisode(): CognitiveState {
+    if (this.state.currentEpisodeId === undefined && this.state.currentInterventionId === undefined) {
+      return this.state;
+    }
+    this.state = bump(this.state, { currentEpisodeId: undefined, currentInterventionId: undefined });
+    return this.state;
+  }
+
+  /** Attach a newly issued intervention to the current episode. */
+  beginIntervention(interventionId: string): CognitiveState {
+    if (this.state.currentInterventionId === interventionId) return this.state;
+    this.state = bump(this.state, { currentInterventionId: interventionId });
+    return this.state;
+  }
+
+  /** The live intervention was resolved (answered) or is no longer live. Idempotent. */
+  resolveIntervention(): CognitiveState {
+    if (this.state.currentInterventionId === undefined) return this.state;
+    this.state = bump(this.state, { currentInterventionId: undefined });
     return this.state;
   }
 

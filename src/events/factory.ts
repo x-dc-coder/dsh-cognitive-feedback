@@ -13,6 +13,10 @@ export interface EventMeta {
   readonly now?: (() => Date) | undefined;
   readonly id?: string | undefined;
   readonly timestamp?: string | undefined;
+  /** Correlation: the reasoning episode this event belongs to. */
+  readonly episodeId?: string | undefined;
+  /** Correlation: the intervention lifecycle this event belongs to. */
+  readonly interventionId?: string | undefined;
 }
 
 /**
@@ -33,7 +37,19 @@ export function makeEvent<T extends CognitiveEventType>(
     timestamp: meta.timestamp ?? now().toISOString(),
     sessionId: meta.sessionId,
     ...(meta.project ? { project: meta.project } : {}),
+    ...(meta.episodeId ? { episodeId: meta.episodeId } : {}),
+    ...(meta.interventionId ? { interventionId: meta.interventionId } : {}),
     type,
     payload,
   } as CognitiveEvent;
+}
+
+/**
+ * Mint one correlation id.
+ *
+ * Prefixed and random so an id is globally unique across sessions and process
+ * restarts, and so a raw log line shows at a glance what kind of unit it names.
+ */
+export function newCorrelationId(prefix: 'ep' | 'iv'): string {
+  return `${prefix}_${randomUUID()}`;
 }

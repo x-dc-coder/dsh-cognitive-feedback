@@ -65,8 +65,29 @@ State is ephemeral. It is not a long-term user profile.
 | `recentUnexplainedImplementations` | `teaching_back.completed` with `skipped`/`incorrect` | increment on each occurrence |
 | `interventionLevel` | policy result | last issued action level |
 | `currentTopic` | latest `user_message` | short topic key used to detect topic change |
+| `currentEpisodeId` | episode opened by a trigger / hypothesis / teaching-back request | cleared on teaching-back completion, topic change, or session end |
+| `currentInterventionId` | intervention issued by the policy or by a teaching-back request | cleared when the answer resolves it, or with its abandoned episode |
 
 No field is set by hidden reasoning or model introspection.
+
+### Correlation and episodes
+
+An intervention is an *act*; an episode is the *reasoning unit* it belongs to.
+The controller mints both ids at the moment the unit begins and carries them in
+state (never in the prompt), so a reader joins a trigger to its hypothesis,
+decision, teaching-back and knowledge gaps by id — not by topic string or nearest
+timestamp. The three identity fields are deliberately distinct:
+
+```text
+sessionId  ⊃  episodeId  ⊃  interventionId
+```
+
+The episode itself is not stored. `src/projection/episodes.ts` reconstructs it
+from the append-only log in append order, tolerating a missing terminator. An
+episode ends as `completed` (teaching back answered and `episode.closed`) or
+`abandoned` (topic change or session end), and nothing reconstructed from
+history is ever fed back into the live prompt — see the prompt/memory boundary in
+`README.md`.
 
 ### Policy Engine
 
