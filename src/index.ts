@@ -93,7 +93,7 @@ export {
 export { StateEngine, createState, type CognitiveState, type CognitiveMode, type InterventionLevel, type TeachingBackResult } from './cognitive/state.js';
 export { decide, activeIntervention, actionLevel, DEFAULT_CONFIG, type PolicyAction, type CognitiveConfig, type ActiveIntervention, type InterventionBudget } from './cognitive/policy.js';
 export { renderCognitiveSection, createSectionRenderer, fingerprint, SECTION_NAME, type SectionRenderer, type RendererOptions } from './prompt/renderer.js';
-export { analyzeMessage, classifyTask, hasHypothesis, isRoutine, topicKey, type TaskType, type MessageAnalysis } from './cognitive/classify.js';
+export { analyzeMessage, classifyTask, hasHypothesis, isRoutine, topicKey, normalizeTopic, type TaskType, type MessageAnalysis } from './cognitive/classify.js';
 export type { CognitiveSignal, SignalKind } from './cognitive/signal.js';
 export { makeEvent, newCorrelationId, type EventMeta } from './events/factory.js';
 export {

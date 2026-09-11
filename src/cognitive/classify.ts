@@ -143,6 +143,27 @@ export function topicKey(text: string): string {
   return words.join('-').slice(0, TOTAL_CAP);
 }
 
+/**
+ * Canonicalize a topic key for cross-event aggregation.
+ *
+ * `topicKey()` keeps word order: it is a change-detection key, and "storage
+ * refactor" vs "refactor storage" being different keys is desirable there. A
+ * knowledge-gap projection asks the opposite question -- is this the same
+ * *topic* seen again? -- so tokens are lowercased, deduped, capped and **sorted**
+ * to make the two spellings identical.
+ */
+export function normalizeTopic(topic: string): string {
+  if (!topic) return '';
+  const tokens = String(topic)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0)
+    .map((token) => token.slice(0, 16))
+    .filter((token, index, all) => all.indexOf(token) === index)
+    .sort();
+  return tokens.join('-').slice(0, 64);
+}
+
 /** The classifier's verdict for one user message. */
 export interface MessageAnalysis {
   readonly taskType: TaskType;

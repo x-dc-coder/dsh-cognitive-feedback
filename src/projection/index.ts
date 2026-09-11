@@ -74,6 +74,14 @@ export {
   type SessionAggregate,
 } from './aggregations.js';
 export {
+  topicLearningStates,
+  countRecurringTopics,
+  openRecurringTopics,
+  type LearningOptions,
+  type TopicLearningState,
+  type TopicRecurrence,
+} from './learning.js';
+export {
   NO_MEMORY,
   createMemorySource,
   type CognitiveMemorySource,

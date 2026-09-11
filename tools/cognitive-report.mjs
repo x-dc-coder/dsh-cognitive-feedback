@@ -33,6 +33,7 @@ const flag = (name, fallback = undefined) => {
 const has = (name) => args.includes(name);
 const asJson = has('--json');
 const showEpisodes = has('--episodes');
+const showTopics = has('--topics');
 const sessionFilter = flag('--session');
 const days = Number(flag('--days', '0')) || 0;
 const defaultHome = process.env.DSH_HOME || join(homedir(), '.dsh');
@@ -89,6 +90,8 @@ if (!filtered && !has('--no-cache')) {
   report = projection.buildProjection(events);
 }
 
+const topics = projection.topicLearningStates(events, { now: Date.now() });
+
 const byType = (type) => events.filter((e) => e.type === type);
 const short = (id) => String(id ?? '').replace(/^session-/, '').slice(0, 8);
 const time = (iso) => String(iso ?? '').replace('T', ' ').slice(0, 19);
@@ -117,6 +120,7 @@ const reports = {
   episodes: report.episodeSummary,
   sessions: report.sessions,
   interventions: report.interventions,
+  topics,
   interventionsByReason: interventions.reduce((acc, e) => {
     const key = (e.payload && e.payload.reason ? e.payload.reason : 'unknown') + ' (level ' + (e.payload && e.payload.level !== undefined ? e.payload.level : '?') + ')';
     acc[key] = (acc[key] ?? 0) + 1;
@@ -188,6 +192,21 @@ if (asJson) {
       );
     }
     if (report.episodes.length > 25) console.log('  ... ' + (report.episodes.length - 25) + ' earlier episode(s); use --json');
+    console.log('');
+  }
+  const recurring = topics.filter((t) => t.recurrence === 'recurring');
+  if (showTopics || recurring.length) {
+    console.log('knowledge-gap topics');
+    const rows = (showTopics ? topics : recurring).filter((t) => t.gapCount > 0);
+    for (const topic of rows.slice(0, 20)) {
+      const last = topic.lastTeachingBack ? topic.lastTeachingBack.result : '-';
+      console.log(
+        '  ' + topic.topic.padEnd(34) + ' gaps ' + String(topic.gapCount).padStart(3) +
+          '  recent ' + String(topic.recentGaps).padStart(3) +
+          '  ' + (topic.resolved ? 'resolved' : 'open    ') + '  last-tb:' + last,
+      );
+    }
+    if (rows.length > 20) console.log('  ... ' + (rows.length - 20) + ' more topic(s); use --json');
     console.log('');
   }
   console.log('sessions');

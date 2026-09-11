@@ -108,7 +108,8 @@ Possible signals include:
 - debugging task where the user has not stated a suspected cause;
 - user repeatedly accepting a generated solution without explanation;
 - research task lacking a measurable hypothesis;
-- same conceptual gap appearing repeatedly in teaching-back results.
+- same conceptual gap appearing repeatedly in teaching-back results
+  (aggregated per normalized topic by `src/projection/learning.ts`).
 
 These signals are heuristics, not psychological measurements.
 
@@ -124,8 +125,27 @@ Rules:
 4. the user can explicitly request normal mode;
 5. a failed intervention must not break the coding workflow.
 
-## 8. What V0.1 does not attempt to measure
+## 8. What the plugin does not attempt to measure
 
-V0.1 does not infer intelligence, personality, learning ability, or hidden reasoning quality. It does not calculate a definitive skill score.
+It does not infer intelligence, personality, learning ability, or hidden reasoning quality. It does not calculate a definitive skill score.
 
 The event log is an instrument for later review, not a psychological profile.
+
+## 9. Topic-level learning state
+
+`knowledge_gap.detected` events are aggregated by **normalized topic** — tokens
+lowercased, deduplicated, sorted — so "refactor storage" and "storage refactor"
+are one topic. Per topic the projection records the gap count, how many are
+inside a recency window, the sessions involved, why each gap was recorded
+(`skipped_answer`, `explicit_uncertainty`, `graded_low`), and whether a later
+**strong** explanation (causal + mechanism evidence) answered it.
+
+- `one_off` vs `recurring` is a count, not a judgment: the second gap on a topic
+  makes it recurring.
+- A strong explanation resolves the topic; a gap recorded after it reopens it.
+- A skipped teaching-back is never a resolution.
+
+This is **reporting-only**. Historical gap data never reaches the live prompt:
+the same request produces the same directive whether the topic is new or its
+fifth occurrence. Fewer gaps is not automatically progress — the caveats in §8
+apply to this signal too.
