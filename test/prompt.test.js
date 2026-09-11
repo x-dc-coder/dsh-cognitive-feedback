@@ -38,8 +38,28 @@ test('the gate label matches the task type (regression)', () => {
 });
 
 test('a challenge renders for high-uncertainty debugging', () => {
-  const state = stateWith({ taskType: 'debugging', currentTopic: 'duplicate-jobs', lastActionType: 'prompt', lastActionTopic: 'duplicate-jobs' });
+  const state = stateWith({
+    taskType: 'debugging',
+    currentTopic: 'duplicate-jobs',
+    lastActionType: 'prompt',
+    lastActionTopic: 'duplicate-jobs',
+    interventionLevel: 2,
+  });
   assert.match(renderCognitiveSection(state), /Challenge/);
+});
+
+test('a level-1 nudge renders as a non-blocking reminder, not a challenge', () => {
+  const state = stateWith({
+    taskType: 'implementation',
+    currentTopic: 'pagination-helper',
+    lastActionType: 'prompt',
+    lastActionTopic: 'pagination-helper',
+    interventionLevel: 1,
+  });
+  const text = renderCognitiveSection(state);
+  assert.match(text, /Nudge/);
+  assert.match(text, /does not block/);
+  assert.doesNotMatch(text, /Challenge/);
 });
 
 test('teaching back renders for a pending high-value task', () => {

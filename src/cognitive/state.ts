@@ -33,6 +33,10 @@ export interface CognitiveState {
   sessionId: string;
   mode: CognitiveMode;
   taskType: TaskType | undefined;
+  /** Whether the latest request was mechanical work (routine wins over taskType). */
+  taskRoutine: boolean;
+  /** High-impact AND high-uncertainty debugging: a user-owned root cause. */
+  taskHighImpactDebug: boolean;
   interventionLevel: InterventionLevel;
   recentDecisionOutsourcing: number;
   recentUnexplainedImplementations: number;
@@ -71,6 +75,8 @@ export function createState(sessionId: string): CognitiveState {
     sessionId,
     mode: 'normal',
     taskType: undefined,
+    taskRoutine: false,
+    taskHighImpactDebug: false,
     interventionLevel: 0,
     recentDecisionOutsourcing: 0,
     recentUnexplainedImplementations: 0,
@@ -172,6 +178,17 @@ export class StateEngine {
     }
     if (info.taskType !== s.taskType) {
       patch.taskType = info.taskType;
+      changed = true;
+    }
+    // The ownership model needs the routine flag and the debugging severity;
+    // taskType alone collapses "routine implementation" and "ordinary
+    // implementation" into the same value.
+    if (info.routine !== s.taskRoutine) {
+      patch.taskRoutine = info.routine;
+      changed = true;
+    }
+    if (info.highImpactDebugging !== s.taskHighImpactDebug) {
+      patch.taskHighImpactDebug = info.highImpactDebugging;
       changed = true;
     }
     if (info.hypothesis && !s.currentHypothesis) {

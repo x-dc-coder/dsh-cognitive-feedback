@@ -20,7 +20,10 @@ const ROUTINE_PATTERNS: readonly RegExp[] = [
   /\btypo\b/i,
   /\bformat(ting)?\b/i,
   /\bcrud\b/i,
-  /\badd\s+(a\s+)?--?[\w-]+\s+flag\b/i,
+  // Tolerate punctuation/backticks around the flag ("Add a \`--verbose\` flag"):
+  // docs/examples.md Example 1 spells it that way, and the ownership model
+  // makes a mis-classification here visible as a spurious nudge.
+  /\badd\s+(?:a\s+)?[^\w\s]*--?[\w-]+[^\w\s]*\s+flag\b/i,
   /\bwrite\s+(unit\s+)?tests?\b/i,
   /\bgenerate\s+(the\s+)?(fixtures?|mocks?)\b/i,
   /\bcopy\s+(this|the)\s+(template|snippet)\b/i,
@@ -164,12 +167,39 @@ export function normalizeTopic(topic: string): string {
   return tokens.join('-').slice(0, 64);
 }
 
+/**
+ * Signals that a debugging task has **high impact**: something a wrong fix can
+ * make materially worse than the bug itself.
+ */
+const HIGH_IMPACT_PATTERN =
+  /\b(production|prod\b|data (?:loss|corruption)|corrupt(?:ed|ion)?|security|race condition|deadlock|memory leak|outage|payment|billing|financial|customer data|revenue)\b/i;
+
+/**
+ * Signals that the cause is **not understood**: the symptom moves, so the user's
+ * own reasoning is the missing piece.
+ */
+const HIGH_UNCERTAINTY_PATTERN =
+  /\b(sometimes|intermittent(?:ly)?|flaky|non-?deterministic|occasionally|sporadic|random(?:ly)?|race|deadlock)\b/i;
+
+/**
+ * Whether a debugging task is BOTH high-impact and high-uncertainty.
+ *
+ * The ownership model treats that combination as user-owned (a reasoning gate).
+ * Ordinary bugs stay a non-blocking challenge, so the plugin does not become
+ * "ask the user before every fix" (issue #9's debug rule).
+ */
+export function isHighImpactDebugging(text: string): boolean {
+  return HIGH_IMPACT_PATTERN.test(text) && HIGH_UNCERTAINTY_PATTERN.test(text);
+}
+
 /** The classifier's verdict for one user message. */
 export interface MessageAnalysis {
   readonly taskType: TaskType;
   readonly routine: boolean;
   readonly hypothesis: boolean;
   readonly topic: string;
+  /** High-impact AND high-uncertainty debugging: a user-owned root cause. */
+  readonly highImpactDebugging: boolean;
 }
 
 /** Classify a user message in one call. */
@@ -180,5 +210,6 @@ export function analyzeMessage(text: string): MessageAnalysis {
     routine,
     hypothesis: hasHypothesis(text),
     topic: topicKey(text),
+    highImpactDebugging: !routine && isHighImpactDebugging(text),
   };
 }

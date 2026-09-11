@@ -165,13 +165,17 @@ test('the persisted log restores the daily budget across restarts', async () => 
   assert.equal(restarted.strongUsed, 3);
 });
 
-test('the budget suppresses further gates once exhausted', async () => {
+test('a spent gate budget degrades the next gate instead of re-issuing it', async () => {
   const { controller } = await makeController({ strongPerDay: 1 });
   const first = await controller.handle('s1', msg('Refactor the storage layer so we can support three backends.'));
   assert.equal(first.type, 'reasoning_gate');
   await controller.handle('s1', msg('I think the storage interface leaks backend details.'));
   const second = await controller.handle('s1', msg('Design a new schema for the events table.'));
-  assert.equal(second.type, 'none', 'the budget must stop the second gate');
+  // Issue #9: the budget degrades a user-owned signal to the strongest
+  // intervention still allowed (a non-blocking challenge) rather than silence.
+  assert.deepEqual(second, { type: 'prompt', level: 2 });
+  assert.match(controller.renderSection('s1'), /Challenge/);
+  assert.equal(controller.strongUsed, 1, 'the second gate was never issued');
 });
 
 test('a restart charges strong interventions only to the strong budget', async () => {

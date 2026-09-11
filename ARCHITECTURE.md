@@ -59,6 +59,8 @@ State is ephemeral. It is not a long-term user profile.
 | State field | Driven by | Rule |
 |---|---|---|
 | `taskType` | latest `user_message` text | deterministic keyword/pattern classifier (`architecture`, `debugging`, `research`, `implementation`, `explanation`) |
+| `taskRoutine` | latest `user_message` text | routine precedence: mechanical work is agent-owned even if a high-value keyword matches |
+| `taskHighImpactDebug` | latest `user_message` text | high-impact **and** high-uncertainty debugging → a user-owned root cause |
 | `mode` | user text + task type | `research` for research tasks, `challenge` after a challenge, `learning` during teaching-back, else `normal` |
 | `currentHypothesis` | `hypothesis.submitted` event | set when the user authors a hypothesis; cleared on session end or topic change |
 | `recentDecisionOutsourcing` | `user_message` classified as delegation without hypothesis | increment; decay by one per hour window |
@@ -91,17 +93,54 @@ history is ever fed back into the live prompt — see the prompt/memory boundary
 
 ### Policy Engine
 
-Converts normalized state and signals into a small action set:
+The policy is a **decision-ownership model**, not a bag of heuristics. Before it
+decides anything it answers *who owns this decision*:
+
+```text
+Task -> Cognitive Value -> Decision Ownership -> Intervention
+                                 ├── agent  -> execute (no intervention)
+                                 ├── shared -> prompt injection (never blocks)
+                                 └── user   -> reasoning gate (blocks until answered)
+```
+
+```ts
+type DecisionOwnership = "agent" | "shared" | "user";
+type CognitiveValue = "low" | "medium" | "high";
+type DecisionKind = "none" | "nudge" | "challenge" | "reasoning_gate";
+
+interface PolicyDecision {
+  kind: DecisionKind;
+  action: PolicyAction;        // the executable subset
+  ownership: DecisionOwnership;
+  value: CognitiveValue;
+  level: 0 | 1 | 2 | 3;
+  blocking: boolean;           // true only for a reasoning gate
+  reason: string;              // stable machine label
+  rationale: string;           // why this decision was reached
+}
+```
+
+`decidePolicy()` returns the full decision; `decide()` returns just the action
+for callers that only need to act. The recorded `intervention.triggered` event
+carries `ownership` and `value`, so the log explains the choice instead of
+re-deriving it.
 
 ```ts
 type PolicyAction =
   | { type: "none" }
-  | { type: "prompt"; level: 1 | 2 }
+  | { type: "prompt"; level: 1 | 2 }      // level 1 nudge, level 2 challenge
   | { type: "reasoning_gate"; reason: string }
   | { type: "teaching_back"; reason: string };
 ```
 
-V0.1 policy is deterministic. No LLM classifier is required.
+Ordering is the policy: a pending gate wins, routine work passes through, a
+user-owned decision gates, unclear debugging challenges, and ordinary
+implementation gets at most one light nudge per topic. A spent gate budget
+degrades to a non-blocking challenge rather than silencing the signal. The full
+matrix and the Prompt Injection / User Q&A boundary are in
+`docs/decision-policy.md`.
+
+Deterministic: no LLM classifier, no randomness.
 
 ### Prompt Builder
 
@@ -137,7 +176,8 @@ The delimiters bound the injected text so it stays removable and greppable. Sect
 
 ### Reasoning Gate
 
-A gate is used only for high-value reasoning. The intended sequence is:
+A gate is used only when the **user owns** the decision (see
+`docs/decision-policy.md`). The intended sequence is:
 
 ```text
 user request

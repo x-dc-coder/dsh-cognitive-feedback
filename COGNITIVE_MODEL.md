@@ -35,14 +35,20 @@ V0.1 focuses on the first group.
 
 ## 3. Intervention levels
 
-| Level | Behavior | Example |
-|---|---|---|
-| 0 | Normal | routine implementation |
-| 1 | Nudge | ask the user to name the main assumption |
-| 2 | Challenge | question an unsupported design choice |
-| 3 | Reasoning gate | require a user-authored hypothesis before implementation |
+| Level | Behavior | Ownership | Blocking | Example |
+|---|---|---|---|---|
+| 0 | Normal | agent | no | routine implementation |
+| 1 | Nudge | shared | no | ask the user to name the main assumption |
+| 2 | Challenge | shared | no | question an unsupported design choice |
+| 3 | Reasoning gate | user | **yes** | require a user-authored hypothesis before implementation |
 
 The intervention level should be proportional to uncertainty and cognitive value.
+
+**Nudge vs challenge vs gate is an ownership question, not an intensity dial.**
+Levels 1–2 keep the agent working and only ask the user to stay involved; level 3
+means the decision is the user's and the agent waits. Only level 3 blocks. The
+full decision matrix, including the debugging and research special rules, is in
+`docs/decision-policy.md`.
 
 ## 4. Decision ownership
 
@@ -57,6 +63,18 @@ user decision
 ```
 
 The goal is not to prevent AI from proposing designs. The goal is to prevent an AI suggestion from becoming the user's decision without conscious evaluation.
+
+Ownership is a first-class policy concept:
+
+| Ownership | Meaning | Agent behavior |
+|---|---|---|
+| `agent` | no reasoning worth protecting | decide and execute |
+| `shared` | reversible, but the user should stay involved | continue with a prompt reminder |
+| `user` | a judgement call the user owns | do not implement before the user states their thinking |
+
+A user-owned decision that cannot take a gate (its budget is spent) **degrades**
+to a non-blocking challenge instead of disappearing; only when both budgets are
+spent does the intervention drop.
 
 ## 5. Research mode
 

@@ -103,6 +103,7 @@ policy nor the prompt layer imports it.
 - `AGENTS.md` — development rules for AI coding agents
 - `docs/dsh-integration.md` — verified DSH rc.1 interface contract and compatibility notes
 - `docs/testing.md` — unit + live acceptance tests, including dynamic prompt injection and cache impact
+- `docs/decision-policy.md` — the Prompt Injection / User Q&A boundary: decision ownership, the level matrix, debug and research rules
 - `docs/examples.md` — expected runtime behavior examples
 - `docs/development-workflow.md` — recommended human/AI development loop
 - `src/` — TypeScript implementation (the only source; `lib/*.js` no longer exists)
@@ -161,6 +162,7 @@ The vertical slice works end to end: observe a signal → classify the task → 
 
 | Increment | What it added |
 |---|---|
+| decision ownership | policy answers *who owns this decision* (`agent`/`shared`/`user`) before choosing none / nudge / challenge / reasoning gate, and records it in the event |
 | correlation | `episodeId`/`interventionId` on every related event, so joins never guess from topic or timestamp |
 | Cognitive Episode | a derived reasoning unit reconstructed from the log, with an explicit `episode.closed` terminator |
 | teaching-back evidence | deterministic evidence extraction (cause, mechanism, concept, confidence, length) instead of a bare grade |

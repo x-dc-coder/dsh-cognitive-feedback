@@ -14,6 +14,7 @@
  */
 import type { TaskType } from '../cognitive/classify.js';
 import type { InterventionLevel, TeachingBackResult } from '../cognitive/state.js';
+import type { CognitiveValue, DecisionOwnership } from '../cognitive/policy.js';
 import type { TeachingBackEvidence } from '../cognitive/teaching-back.js';
 
 /** Current schema version. Breaking changes require a new number. */
@@ -47,6 +48,10 @@ export interface CognitiveEventPayloadMap {
     reason: string;
     taskType: TaskType | null;
     topic: string | null;
+    /** Who owned the decision (issue #9). Optional for pre-ownership events. */
+    ownership?: DecisionOwnership;
+    /** The cognitive value the policy assigned. Optional for pre-ownership events. */
+    value?: CognitiveValue;
   };
   'hypothesis.submitted': { text: string; authorship: 'user'; taskType: TaskType | null };
   'decision.recorded': { owner: 'user'; topic: string | null };

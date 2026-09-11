@@ -58,7 +58,9 @@ export function renderCognitiveSection(state: CognitiveState, options: RendererO
         ? 'an architecture decision'
         : active.reason === 'research'
           ? 'a research decision'
-          : 'a design decision';
+          : active.reason === 'debugging' || active.reason === 'root-cause'
+            ? 'a root-cause decision'
+            : 'a design decision';
     const ask = useTool
       ? 'Use the `ask_user_question` tool (question id `cognitive-gate`) so the turn pauses for their answer.'
       : 'Ask the user directly, then wait for their answer before implementing.';
@@ -71,6 +73,17 @@ export function renderCognitiveSection(state: CognitiveState, options: RendererO
       '3. why they expect it to work.',
       ask,
       'Then you may challenge, refine, or validate it -- but do not implement until they answer.',
+      '[/COGNITIVE FEEDBACK]',
+    ].join('\n');
+  }
+
+  if (active.kind === 'nudge') {
+    // Level 1: a light, explicitly non-blocking reminder. It must never be
+    // phrased as a question the agent has to wait for.
+    return [
+      '[COGNITIVE FEEDBACK]',
+      'Nudge -- before implementing, name the main assumption this rests on and how you would check it.',
+      'Keep it brief; this does not block the task. Continue once the assumption is stated.',
       '[/COGNITIVE FEEDBACK]',
     ].join('\n');
   }

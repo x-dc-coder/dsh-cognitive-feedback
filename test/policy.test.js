@@ -6,9 +6,14 @@ import { StateEngine, createState } from '../dist/cognitive/state.js';
 /** @param {Partial<ReturnType<typeof createState>>} patch */
 const stateWith = (patch) => ({ ...createState('s1'), ...patch });
 
-test('routine task produces no intervention', () => {
-  const state = stateWith({ taskType: 'implementation', currentTopic: 'add-flag' });
+test('a routine task is agent-owned and produces no intervention', () => {
+  const state = stateWith({ taskType: 'implementation', taskRoutine: true, currentTopic: 'add-flag' });
   assert.deepEqual(decide(state), { type: 'none' });
+});
+
+test('ordinary (non-routine) implementation gets a non-blocking level-1 nudge', () => {
+  const state = stateWith({ taskType: 'implementation', currentTopic: 'pagination-helper' });
+  assert.deepEqual(decide(state), { type: 'prompt', level: 1 });
 });
 
 test('architecture task without a hypothesis produces a reasoning gate', () => {
@@ -31,9 +36,14 @@ test('high-uncertainty debugging produces a level-2 challenge', () => {
   assert.deepEqual(decide(state), { type: 'prompt', level: 2 });
 });
 
-test('intervention budget exhaustion suppresses strong interventions', () => {
+test('a spent gate budget degrades to a non-blocking challenge, not silence', () => {
   const state = stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage' });
-  assert.deepEqual(decide(state, { budget: { strongUsed: 5, lightUsed: 0 } }), { type: 'none' });
+  assert.deepEqual(decide(state, { budget: { strongUsed: 5, lightUsed: 0 } }), { type: 'prompt', level: 2 });
+});
+
+test('only when both budgets are spent does the intervention disappear', () => {
+  const state = stateWith({ taskType: 'architecture', currentTopic: 'refactor-storage' });
+  assert.deepEqual(decide(state, { budget: { strongUsed: 5, lightUsed: 10 } }), { type: 'none' });
 });
 
 test('intervention budget exhaustion suppresses light interventions', () => {

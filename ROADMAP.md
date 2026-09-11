@@ -34,6 +34,7 @@ working.
 | #5 projections | one-pass session/episode/intervention read models, digest-keyed in-memory + on-disk cache, rebuildable and discardable |
 | #6 longitudinal metrics | exposure / response / outcome / utilization from persisted events; baseline-vs-feedback comparison with a non-causality caveat |
 | #7 topic learning state | recurrence aggregated by normalized topic; resolution requires a later strong explanation; reporting-only |
+| #9 decision ownership | policy answers `agent` / `shared` / `user` before choosing none / nudge / challenge / reasoning gate; matrix in `docs/decision-policy.md`; user-owned signals degrade instead of vanishing |
 
 ## V0.2 — Better feedback
 

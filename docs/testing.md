@@ -9,13 +9,14 @@ npm run build          # tests run against dist/
 node --test test/*.test.js
 ```
 
-They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **133 tests across 16 files.**
+They import the core modules directly, so they run in milliseconds with no DSH instance, no model calls, and no network (`AGENTS.md` §7). **145 tests across 17 files.**
 
 | File | Covers |
 |---|---|
 | `classify.test.js` | routine vs high-value classification, hypothesis detection, deterministic topic keys |
 | `state.test.js` | state transitions, reference stability for unchanged signals, gate→hypothesis conversion |
-| `policy.test.js` | gate / challenge / teaching-back decisions, budget suppression, disabled config, and a **contract test replaying all six documented examples from `docs/examples.md`** |
+| `policy.test.js` | gate / challenge / nudge decisions, budget degradation, disabled config, and a **contract test replaying all six documented examples from `docs/examples.md`** |
+| `policy-matrix.test.js` | the **decision matrix as a table**: kind / ownership / level / blocking / reason for every row, routine precedence, the hypothesis-suppresses case, pending gates, the budget-degradation ladder, and the ownership fields recorded in the event |
 | `prompt.test.js` | bounded delimited rendering, determinism, fingerprint memoization, no secrets, **the static import boundary that keeps the renderer away from the event log**, and history-independence |
 | `storage.test.js` | schema version, unique ids, append-only JSONL, malformed-line tolerance |
 | `controller.test.js` | end-to-end decision flow, budget persistence across restarts, **fail-open on sink errors**, and the teaching-back directive/answer loop |
@@ -131,7 +132,12 @@ needed) produced:
 | Run | `system/message` | blocks | event log |
 |---|---|---|---|
 | control (`enabled: false`) | 4508 | **0** | **no file created** — inert |
-| treatment (enabled) | 4754 | **1** | `intervention.triggered {level: 2, reason: "debugging"}` **plus `episodeId` and `interventionId`** |
+| treatment, debugging prompt | 4754 | **1** | `intervention.triggered {level: 2, reason: "debugging"}` **plus `episodeId` and `interventionId`** |
+| treatment, implementation prompt | 4732 | **1** | `intervention.triggered {level: 1, reason: "implementation", ownership: "shared", value: "medium"}` and the injected text is the level-1 **Nudge**, not a challenge |
+
+The third run is the ownership re-verification for `docs/decision-policy.md`:
+ordinary implementation is `shared` and non-blocking, and the event records the
+ownership and value the decision came from.
 
 `inspect-session.mjs` also reported a **constant tool schema** (58 tools, one
 distinct signature) and a single `system/message` node, and the model's answer

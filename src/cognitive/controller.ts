@@ -31,7 +31,7 @@
  */
 import { StateEngine, type CognitiveState, type TeachingBackResult } from './state.js';
 import { assessTeachingBack, extractTeachingBackEvidence } from './teaching-back.js';
-import { DEFAULT_CONFIG, decide, activeIntervention, actionLevel, type ActiveIntervention, type CognitiveConfig, type PolicyAction } from './policy.js';
+import { DEFAULT_CONFIG, decidePolicy, activeIntervention, type ActiveIntervention, type CognitiveConfig, type PolicyAction } from './policy.js';
 import type { CognitiveSignal } from './signal.js';
 import { createSectionRenderer, type SectionRenderer } from '../prompt/renderer.js';
 import { makeEvent, newCorrelationId } from '../events/factory.js';
@@ -240,7 +240,11 @@ export class CognitiveController {
         });
       }
       engine.closeEpisode();
-      state = engine.snapshot();
+      // The message was consumed as the teaching-back answer: policy applies to
+      // the NEXT request. Falling through would let one message both answer the
+      // check and trigger a fresh intervention (and a second episode), which is
+      // exactly the chattiness the ownership model forbids.
+      return { action: { type: 'none' }, events };
     }
 
     // A newly authored hypothesis (stated directly or as a gate answer). It
@@ -299,15 +303,19 @@ export class CognitiveController {
 
     if (signal.kind !== 'user_message') return { action: { type: 'none' }, events };
 
-    const action = decide(engine.snapshot(), {
+    // The full decision is computed once: the action to execute AND the
+    // ownership/value it came from. The event records both, so a later reader
+    // can see why the plugin intervened instead of re-deriving it.
+    const decision = decidePolicy(engine.snapshot(), {
       config: this.config,
       budget: { strongUsed: this.strongUsed, lightUsed: this.lightUsed },
     });
+    const action = decision.action;
 
     // Only these two are reachable: teaching back is state-driven and is
     // recorded above, the moment its directive goes live.
     if (action.type === 'prompt' || action.type === 'reasoning_gate') {
-      const level = actionLevel(action);
+      const level = decision.level;
       const episodeId = ensureEpisode();
       const interventionId = newCorrelationId('iv');
       engine.beginIntervention(interventionId);
@@ -315,9 +323,11 @@ export class CognitiveController {
         type: 'intervention.triggered',
         payload: {
           level,
-          reason: action.type === 'reasoning_gate' ? action.reason : 'debugging',
+          reason: decision.reason,
           taskType: state.taskType ?? null,
           topic: state.currentTopic ?? null,
+          ownership: decision.ownership,
+          value: decision.value,
         },
         ...correlation(episodeId, interventionId),
       });

@@ -13,7 +13,7 @@ import { makeEvent } from '../../src/events/factory.js';
 import { parseCognitiveEvent } from '../../src/events/queries.js';
 import type { CognitiveEvent, CognitiveEventType, PreparedEvent } from '../../src/events/types.js';
 import { createState, type TeachingBackResult } from '../../src/cognitive/state.js';
-import { activeIntervention, decide } from '../../src/cognitive/policy.js';
+import { activeIntervention, decide, decidePolicy, type DecisionOwnership, type PolicyDecision } from '../../src/cognitive/policy.js';
 import { renderCognitiveSection } from '../../src/prompt/renderer.js';
 import { extractTeachingBackEvidence, type TeachingBackEvidence } from '../../src/cognitive/teaching-back.js';
 import { normalizeTopic, topicKey } from '../../src/cognitive/classify.js';
@@ -145,3 +145,14 @@ void metrics.runtimeState;
 // 15. Topic keys normalize to a bounded string, and stay distinct from topicKey().
 const normalized: string = normalizeTopic(topicKey('Refactor the storage layer'));
 void normalized;
+
+// 16. A policy decision exposes the ownership model, and ownership is closed.
+const decision: PolicyDecision = decidePolicy(state);
+const ownership: DecisionOwnership = decision.ownership;
+const blocking: boolean = decision.blocking;
+void ownership;
+void blocking;
+// @ts-expect-error -- ownership is a closed union: agent | shared | user
+decision.ownership = 'robot';
+// @ts-expect-error -- a decision has no 'level3' field; the level is 'level'
+void decision.level3;

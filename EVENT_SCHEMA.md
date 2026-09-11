@@ -67,10 +67,18 @@ or empty id) rather than letting it become a join key.
     "level": 3,
     "reason": "architecture",
     "taskType": "architecture",
-    "topic": "refactor-storage-layer-support-three-backends"
+    "topic": "refactor-storage-layer-support-three-backends",
+    "ownership": "user",
+    "value": "high"
   }
 }
 ```
+
+`payload.ownership` (`agent` | `shared` | `user`) and `payload.value`
+(`low` | `medium` | `high`) are the policy's explanation for the intervention:
+who owned the decision, and how much cognitive value it carried. They are
+optional, so events written before the ownership model still read. See
+`docs/decision-policy.md`.
 
 ## Example: hypothesis
 
